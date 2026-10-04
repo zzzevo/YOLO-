@@ -1,0 +1,57 @@
+# ============================================================
+#  YOLO- 训练项目 .gitignore
+#  原则: 代码/文档/配置进仓库, 大文件与数据不进仓库
+# ============================================================
+
+# ---------- 模型权重（几 MB ~ 几百 MB，都能重新下载或重新训练）----------
+yolo26n.pt
+yolov8s-worldv2.pt
+weights/
+*.cvimodel
+*.mud
+
+# ---------- 训练产物 ----------
+runs/
+*.cache
+
+# ---------- 数据集与图片素材（体积大 + 部分来自网络有版权）----------
+raw_web/
+raw_web2/
+raw_web2/manifest.csv
+sample_raw/
+dataset_demo/
+dataset_web/
+dataset_real/
+dataset_mix/
+realtest/
+out_probe/
+raw_cam/
+dataset_cam/
+raw_images/
+
+# ---------- 运行期目录 ----------
+gui_logs/
+.ultralytics/
+.mplconfig/
+.tmp/
+Ultralytics/
+__pycache__/
+*.py[cod]
+tmp*/
+
+# ---------- 日志 ----------
+_*.log
+*.log
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# ============================================================
+#  注意: best.onnx (9.3MB, 本项目的核心模型) 是**被跟踪**的, 上面没有忽略它。
+#  如果你也不想把它放进仓库:
+#      git rm --cached best.onnx      然后把它加进上面的忽略列表
+#  更大的模型建议用 GitHub Releases 或 Git LFS。
+# ============================================================

@@ -1,0 +1,45 @@
+# ============================================================
+#  YOLO26 目标检测训练项目 —— 依赖清单
+#  实测环境: Windows + Python 3.12.15 + NVIDIA RTX 5070 Laptop (8GB) + CUDA 12.8
+#
+#  安装:
+#      conda create -n yolo26 python=3.12 -y
+#      conda activate yolo26
+#      pip install -r requirements.txt
+#
+#  注意 1: torch 的 CUDA 版不在 PyPI, 靠下面的 --extra-index-url 才能装上。
+#  注意 2: RTX 50 系(Blackwell, sm_120)必须 cu128 及以上, 否则会装成 CPU 版。
+#          没有 N 卡的话: 删掉 --extra-index-url 那行, 并把 torch/torchvision
+#          改成不带 +cu128 的版本(或直接不加版本号让 pip 自己选)。
+# ============================================================
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# ---- 训练核心 ----
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+ultralytics==8.4.171
+
+# ---- ONNX 导出与推理 ----
+onnx==1.23.1
+onnxslim==0.1.97
+onnxruntime==1.30.0
+
+# ---- 图像与数值 ----
+opencv-python==5.0.0.93
+numpy==2.5.2
+matplotlib==3.11.2
+pandas==3.0.6
+
+# ---- 图形界面（训练曲线 / 工作台）----
+tensorboard==2.21.0
+gradio==6.29.1
+
+# ---- 联网搜图（可选，只有 fetch_images.py 需要）----
+ddgs==9.16.0
+icrawler==0.6.10
+
+# ---- 开放词汇自动标注（可选，只有 auto_label_world.py 需要）----
+# 若 pip 装不上, 且网络能访问 GitHub, 可改用:
+#   pip install git+https://github.com/ultralytics/CLIP.git
+openai-clip==1.0.1
+ftfy==6.3.1
