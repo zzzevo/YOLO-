@@ -288,7 +288,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=7860)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--browser", action="store_true",
+                    help="服务就绪后自动打开浏览器（双击 bat 启动时用）")
     a = ap.parse_args()
+    print(f"\n>>> 工作台地址: http://{a.host}:{a.port}/")
+    print(">>> 关闭本窗口 = 停止服务\n")
     # Gradio 6: theme 等移到 launch()；不再支持 show_api
-    demo.launch(server_name=a.host, server_port=a.port, inbrowser=False,
+    demo.launch(server_name=a.host, server_port=a.port, inbrowser=a.browser,
                 theme=gr.themes.Soft(), show_error=True)

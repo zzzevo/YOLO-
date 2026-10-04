@@ -91,13 +91,21 @@ GPU: NVIDIA GeForce RTX 5070 Laptop GPU (8151 MiB) / ultralytics 8.4.171
 | **YOLO26 工作台**（Gradio） | <http://127.0.0.1:7860/> | 抽帧 / 联网搜图 / 自动标注 / 训练 / 推理，全在网页里点 |
 | **TensorBoard** | <http://127.0.0.1:6006/> | 训练曲线（loss、mAP、PR 曲线）实时刷新 |
 
-重启命令（会话关掉后需要重新起）：
+**最省事的启动方式：双击 `start_workbench.bat`**（中文名 `启动工作台.bat` 是同款入口）
+—— 它会开 TensorBoard 窗口、激活环境、启动工作台，并在就绪后**自动打开浏览器**。
+启动器窗口是服务本体，**关掉即停服**；再双击一次会检测到已在运行，只打开浏览器。
+
+命令行方式（等价）：
 
 ```powershell
 conda activate yolo26
-python app.py                                                        # 工作台 -> 7860
+python app.py --browser                                              # 工作台 -> 7860
 python -m tensorboard.main --logdir runs --port 6006 --host 127.0.0.1 # 曲线 -> 6006
 ```
+
+> ⚠️ **bat 内容必须保持纯 ASCII（英文提示）**：cmd 用 GBK 代码页解析 bat 文件，
+> 而编辑器默认存 UTF-8；中文的 UTF-8 字节被当 GBK 读会把命令行切碎，表现为
+> **"双击一闪、什么都没发生"**。启动器会把每一步写进 `startup_log.txt`，便于定位。
 
 > TensorBoard 有前置开关：ultralytics 只在设置里 `tensorboard=True` 时才写事件文件。
 > 已帮你打开（`python -c "from ultralytics import settings; settings.update({'tensorboard': True})"`）。
@@ -320,7 +328,7 @@ python train.py --data dataset_demo\data.yaml --epochs 3 --batch 8 --workers 0 `
 | 类型 | 内容 |
 |---|---|
 | 代码 | `infer_onnx.py` `build_dataset.py` `extract_frames.py` `fetch_images.py` `auto_label_world.py` `merge_datasets.py` `train.py` `onnx_to_pt.py` `app.py` |
-| 脚本 | `setup_env.ps1` `启动工作台.bat` |
+| 脚本 | `setup_env.ps1` `start_workbench.bat` `start_tensorboard.bat`（`启动工作台.bat` / `启动TensorBoard.bat` 是同名入口） |
 | 文档 | `README.md` `使用手册.md` `YOLO零基础入门.md` |
 | 配置 | `requirements.txt` `.gitignore` |
 | 模型 | `best.onnx`（9.3 MB，本项目的原始模型） |
@@ -351,7 +359,7 @@ pip install -r requirements.txt
 python app.py            # 工作台 http://127.0.0.1:7860/
 ```
 
-⚠️ `启动工作台.bat`、`setup_env.ps1`、`onnx_to_pt.py` 里含本机路径（`D:\Anconda`、`D:\Python`），换机器要改。
+⚠️ `start_workbench.bat`、`setup_env.ps1`、`onnx_to_pt.py` 里含本机路径（`D:\Anconda`、`D:\Python`），换机器要改。
 ⚠️ `data.yaml` 里的 `path` 是绝对路径（脚本自动生成的），换机器要重新生成数据集。
 
 ### 许可证
