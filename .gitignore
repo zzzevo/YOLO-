@@ -32,6 +32,11 @@ raw_cam/
 dataset_cam/
 raw_images/
 
+dataset_ball_ms/
+review/
+_empty_frames/
+_seq/
+
 # ---------- 运行期目录 ----------
 gui_logs/
 .ultralytics/

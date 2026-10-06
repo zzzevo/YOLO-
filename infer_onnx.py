@@ -49,6 +49,51 @@ def nms(boxes_xywh, scores, iou_thr=0.45):
     return [] if len(idx) == 0 else np.asarray(idx).reshape(-1).tolist()
 
 
+def detect_multiscale(det, img, scales=(1.0, 0.6, 0.4), iou_thr=0.5):
+    """尺度空间检测：把整帧缩小后贴在灰底画布上（等价于"让目标在输入里变小"）再检测，
+    最后把框按比例映射回原图，并跨尺度做 NMS 去重。
+
+    解决什么问题：模型只在某个尺度区间上学过目标，目标"太大"（贴近镜头）时会失明。
+    实测（本项目篮球/排球）：球占画面宽度 >20% 时置信度从 0.9 掉到 0.006；
+    把画面缩到 0.4 倍再检测，同一张图置信度回到 0.92。
+
+    得到的框精度会随缩小比例略有下降（缩小 k 倍 → 误差约放大 1/k），用于训练足够。
+    """
+    h, w = img.shape[:2]
+    boxes, scores, classes = [], [], []
+    for k in scales:
+        if k >= 1.0:
+            test, x0, y0 = img, 0, 0
+        else:
+            small = cv2.resize(img, (max(8, int(w * k)), max(8, int(h * k))),
+                               interpolation=cv2.INTER_AREA)
+            test = np.full((h, w, 3), 114, np.uint8)
+            y0 = (h - small.shape[0]) // 2
+            x0 = (w - small.shape[1]) // 2
+            test[y0:y0 + small.shape[0], x0:x0 + small.shape[1]] = small
+        dets, _ = det(test)                       # det 返回的坐标已经是 test(与原图同尺寸) 的
+        for d in dets:
+            x1, y1, x2, y2 = d["xyxy"]
+            boxes.append([(x1 - x0) / k, (y1 - y0) / k, (x2 - x0) / k, (y2 - y0) / k])
+            scores.append(d["conf"])
+            classes.append(d["cls"])
+
+    if not boxes:
+        return []
+
+    out = []
+    for c in sorted(set(classes)):                # 逐类做 NMS，避免两类互相抑制
+        idx = [i for i, cc in enumerate(classes) if cc == c]
+        xywh = [[(boxes[i][0] + boxes[i][2]) / 2, (boxes[i][1] + boxes[i][3]) / 2,
+                 boxes[i][2] - boxes[i][0], boxes[i][3] - boxes[i][1]] for i in idx]
+        keep = nms(xywh, [scores[i] for i in idx], iou_thr)
+        for j in keep:
+            i = idx[j]
+            out.append({"xyxy": tuple(boxes[i]), "conf": scores[i], "cls": c})
+    out.sort(key=lambda d: -d["conf"])
+    return out
+
+
 class Detector:
     def __init__(self, model_path, imgsz=640, conf=0.25, iou=0.45, threads=0):
         so = ort.SessionOptions()

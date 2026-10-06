@@ -270,8 +270,8 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         with gr.Row():
             inp = gr.Image(label="上传图片", type="filepath")
             with gr.Column():
-                model4 = gr.Textbox(label="模型（.onnx 或 .pt）", value=str(ROOT / "runs" / "ball_v1" / "weights" / "best.onnx"),
-                                    info="也可填 best.onnx（原始）/ runs\\ball_v1\\weights\\best.pt")
+                model4 = gr.Textbox(label="模型（.onnx 或 .pt）", value=str(ROOT / "runs" / "ball_v2" / "weights" / "best.onnx"),
+                                    info="也可填 best.onnx(原始) / runs\\ball_v2\\weights\\best.pt / ball_v1")
                 conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
                 iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
                 btn5 = gr.Button("检测", variant="primary")

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import cv2
 
-from infer_onnx import CLASS_NAMES, Detector, to_yolo_lines, IMG_EXTS
+from infer_onnx import CLASS_NAMES, Detector, detect_multiscale, to_yolo_lines, IMG_EXTS
 
 
 def main():
@@ -38,7 +38,12 @@ def main():
                                               "例: --keep 1 只做单类数据集")
     ap.add_argument("--val-prefix", default="", help="文件名以这些前缀开头的划入验证集（逗号分隔）。"
                                                      "按视频/场次划分验证集比随机划分更诚实，例: --val-prefix v2_")
+    ap.add_argument("--scales", default="1.0",
+                    help="尺度空间自动标注：逗号分隔的缩放倍率，如 1.0,0.6,0.4。"
+                         "模型对'太大'的目标会失明，缩小画面再检测可救回（实测 0.006 -> 0.92）")
     args = ap.parse_args()
+
+    scales = tuple(float(x) for x in args.scales.replace("，", ",").split(",") if x.strip())
 
     val_prefixes = tuple(x.strip() for x in args.val_prefix.replace("，", ",").split(",") if x.strip())
 
@@ -74,7 +79,7 @@ def main():
         if img is None:
             print(f"[skip] 读不到 {p}")
             continue
-        dets, _ = det(img)
+        dets, _ = det(img) if len(scales) <= 1 else (detect_multiscale(det, img, scales), 0)
         if keep:                                   # 只留指定类别，并重映射 id
             dets = [dict(d, cls=keep.index(d["cls"])) for d in dets if d["cls"] in keep]
         split = "val" if i < n_val else "train"
