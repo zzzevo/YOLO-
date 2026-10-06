@@ -22,12 +22,17 @@
 | 权重 | 108 个 conv weight/bias，名字就是原生 PyTorch 名（可回填，见第四节） |
 | 无 BN 参数 | BN 已折进 Conv → 回填时 BN 需设成恒等 |
 
-实测推理（CPU，onnxruntime 1.30）：单帧 **~28 ms**，在你的
-`25-DianSai-h/vision/recordings/test_01_20260804_115304.mp4` 上能出框（class1, conf 0.26~0.52）。
+实测推理（CPU，onnxruntime 1.30）：单帧 **~28 ms**。
 
-⚠️ **类别顺序未知**：模型是 2 类，但 `data.yaml` 里的 `names` 没导出到 ONNX 里。
-已确认 **class1 = 机器人**；class0 名称未知（现有录像 91 个框全是 class1）。
-改了类名要同步改 `infer_onnx.py` 顶部的 `CLASS_NAMES`，**顺序必须和原训练时一致**，否则 6 通道解读就错位了。
+✅ **类别已确认为「篮球 / 排球」**（2026-10 用裁剪图肉眼核验，见第九节）：
+
+| class id | 类别 | 核验证据 |
+|---|---|---|
+| 0 | **篮球** | 39 个检测裁剪全是橙色篮球；HSV 色相 7 / 饱和 140 |
+| 1 | **排球** | 42 个裁剪全是蓝黄白 Mikasa 排球；中位置信度 0.82 |
+
+ONNX 里不含类名，类名写在 `infer_onnx.py` 顶部的 `CLASS_NAMES`（已订正为 `["篮球", "排球"]`），
+**顺序必须与原训练一致**，否则 6 通道解读就错位了。
 
 ---
 
@@ -65,7 +70,7 @@ GPU: NVIDIA GeForce RTX 5070 Laptop GPU (8151 MiB) / ultralytics 8.4.171
 管线：
 ```
 抽帧      : 65 帧 @192x192
-自动标注  : 51 张有目标 + 1 张负样本, 91 个框, 全部 class1(机器人)
+自动标注  : 51 张有目标 + 1 张负样本, 91 个框 (早期把 class1 误记为"机器人", 实为排球)
 数据集    : dataset_demo/  images/train 40, images/val 12, labels 一一对应
 冒烟训练  : 3 epochs 完成, best.pt 5.4MB, 推理 9.2ms/图 (GPU)
 导出      : best.pt -> best.onnx, 结构与你原始 best.onnx 完全一致
@@ -366,3 +371,68 @@ python app.py            # 工作台 http://127.0.0.1:7860/
 
 本仓库采用 **AGPL-3.0**。原因很直接：`ultralytics` 本身是 AGPL-3.0，你的代码 `import` 了它，
 按它的许可条款，衍生作品需要同样开源。**如果将来要闭源商用，需要向 Ultralytics 购买商业授权。**
+
+---
+
+## 九、篮球/排球模型：用你两段视频继续训练（2026-10）
+
+### 数据
+
+`sample_raw/` 里两段微信视频（720×1280 竖屏，30fps，各约 100 秒）：
+
+| 视频 | 内容 | 抽帧 |
+|---|---|---|
+| `微信视频..._123958_731.mp4` | **全是排球**在地板砖上滚动 | 201 张（v1_ 前缀） |
+| `微信视频..._124014_013.mp4` | **全是篮球**在地板砖上滚动 | 218 张（v2_ 前缀） |
+
+```powershell
+# 抽帧（注意：这类固定机位视频不要开直方图去重，球只占很小一块，全局直方图几乎一样）
+python extract_frames.py --src "sample_raw\微信视频2026-10-06_123958_731.mp4" --dst raw_ball --stride 15 --blur-thresh 0 --dedup 1.0 --prefix v1_
+python extract_frames.py --src "sample_raw\微信视频2026-10-06_124014_013.mp4" --dst raw_ball --stride 15 --blur-thresh 0 --dedup 1.0 --prefix v2_
+# 自动标注 -> dataset_ball（403 张有目标 / 416 框：篮球 211 + 排球 205）
+python build_dataset.py --src raw_ball --dst dataset_ball --conf 0.25 --val-ratio 0.2
+# 用你上传的权重继续训练
+python train.py --data dataset_ball\data.yaml --model runs\recovered\best_recovered.pt --epochs 100 --lr0 0.002 --name ball_v1
+```
+
+### 两个坑（都实测踩到）
+
+1. **糊图阈值不要照搬**：这两段视频的 Laplacian 方差中位数只有 **20.5**（最大 51），
+   默认阈值 40 会把 2/3 的帧当"糊图"丢掉（实测 627 帧只留 48 张）。压缩过的手机视频本来就软，
+   而这就是模型要面对的域 → `--blur-thresh 0`。
+2. **直方图去重对固定机位无效**：球在动，但全局直方图几乎不变 → `--dedup 1.0` 关掉。
+
+### 结果
+
+| | mAP50 | mAP50-95 | P | R |
+|---|---|---|---|---|
+| 基线（你上传的权重） | 0.9946 | 0.9673 | 0.9608 | 0.9765 |
+| 继续训练后（92 轮 / 16 分钟） | 0.9928 | 0.8888 | **0.9970** | 0.9747 |
+| 新模型分类别 mAP50 | 篮球 0.9905 / 排球 0.9950 | | | |
+
+**必须说清的"水分"**：这一版的标签是**你原来那个模型自己打的**（伪标注），
+所以基线那 0.9946 是"模型和自己比"，天然接近满分。学生模型 0.9928 说明
+**它成功复现了教师**（蒸馏成功），但**不等于比教师更强**。mAP50-95 反而略低（0.889 vs 0.967），
+说明框的贴合度还不如教师。
+
+### 真正的提升路径
+
+真正能超过当前模型的地方，是**教师自己没把握的帧**。已经帮你筛出来了：
+
+```powershell
+python find_hard_frames.py --src raw_ball --out to_review --conf 0.60
+# 419 帧 -> 需人工核对 46 帧（整帧无检测 16 / 低置信 24 / 同帧两类 6）
+```
+
+用 X-AnyLabeling 把 `to_review/` 里这 46 帧手工标对，再重训，模型才会真的变强。
+
+### 产物
+
+| 文件 | 说明 |
+|---|---|
+| `runs/ball_v1/weights/best.pt` | 新模型（PyTorch，可继续训练） |
+| `runs/ball_v1/weights/best.onnx` | 新模型（ONNX，9.3MB，结构 `[1,3,640,640] → [1,6,8400]`，与原始模型一致） |
+| `dataset_ball/` | 数据集（419 帧 + 标签 + data.yaml） |
+| `to_review/` | 46 帧待人工核对 + `需人工核对.txt` |
+| `ball_train_report.json` | 上面的数字（原始 JSON） |
+| `ball_val_predictions.jpg` | 新模型在验证集上的预测拼图（人眼核验用） |

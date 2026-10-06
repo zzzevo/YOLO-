@@ -17,14 +17,17 @@ runs/
 # ---------- 数据集与图片素材（体积大 + 部分来自网络有版权）----------
 raw_web/
 raw_web2/
-raw_web2/manifest.csv
 sample_raw/
+raw_ball/
 dataset_demo/
 dataset_web/
 dataset_real/
 dataset_mix/
+dataset_ball/
 realtest/
+to_review/
 out_probe/
+out_new/
 raw_cam/
 dataset_cam/
 raw_images/
@@ -39,10 +42,13 @@ __pycache__/
 *.py[cod]
 tmp*/
 
-# ---------- 日志 ----------
+# ---------- 日志与中间产物 ----------
 _*.log
 *.log
 startup_log.txt
+.gitignore.bak
+_cls_probe/
+_sheet_*.jpg
 
 # ---------- 编辑器 / 系统 ----------
 .vscode/
@@ -51,8 +57,9 @@ Thumbs.db
 desktop.ini
 
 # ============================================================
-#  注意: best.onnx (9.3MB, 本项目的核心模型) 是**被跟踪**的, 上面没有忽略它。
-#  如果你也不想把它放进仓库:
-#      git rm --cached best.onnx      然后把它加进上面的忽略列表
-#  更大的模型建议用 GitHub Releases 或 Git LFS。
+#  注意: 下面这些是**被跟踪**的, 不要忽略:
+#    best.onnx                        你的原始模型 (9.3MB)
+#    ball_train_report.json           篮球/排球训练结果
+#    ball_val_predictions.jpg         新模型在验证集上的预测拼图
+#  更大的权重建议用 GitHub Releases 或 Git LFS。
 # ============================================================

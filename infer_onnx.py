@@ -23,9 +23,9 @@ import onnxruntime as ort
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VID_EXTS = {".mp4", ".avi", ".mov", ".mkv"}
 
-# 模型是 2 类，顺序必须与原训练一致。class1 已确认为「机器人」；
-# class0 目前未知（现有录像里 76 个框全是 class1），请改成真实类名。
-CLASS_NAMES = ["class0", "机器人"]
+# 模型的 2 个类别，顺序必须与原训练一致（已用裁剪图肉眼核验）：
+#   0 = 篮球（橙色）  1 = 排球（蓝黄白 Mikasa）
+CLASS_NAMES = ["篮球", "排球"]
 COLORS = [(0, 200, 0), (0, 128, 255), (255, 128, 0), (0, 0, 255)]
 
 

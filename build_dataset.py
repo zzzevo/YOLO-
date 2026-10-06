@@ -35,8 +35,12 @@ def main():
     ap.add_argument("--neg-ratio", type=float, default=0.10, help="空标注负样本保留比例")
     ap.add_argument("--limit", type=int, default=0, help="最多处理多少张，0=全部")
     ap.add_argument("--keep", default="", help="只保留这些类别 id（逗号分隔，按给定顺序重映射为 0..n-1）；"
-                                              "例: --keep 1 只留「机器人」并变成单类数据集")
+                                              "例: --keep 1 只做单类数据集")
+    ap.add_argument("--val-prefix", default="", help="文件名以这些前缀开头的划入验证集（逗号分隔）。"
+                                                     "按视频/场次划分验证集比随机划分更诚实，例: --val-prefix v2_")
     args = ap.parse_args()
+
+    val_prefixes = tuple(x.strip() for x in args.val_prefix.replace("，", ",").split(",") if x.strip())
 
     keep = [int(x) for x in args.keep.replace("，", ",").split(",") if x.strip() != ""]
     keep_names = [CLASS_NAMES[k] if k < len(CLASS_NAMES) else f"class{k}" for k in keep] or list(CLASS_NAMES)
@@ -74,6 +78,8 @@ def main():
         if keep:                                   # 只留指定类别，并重映射 id
             dets = [dict(d, cls=keep.index(d["cls"])) for d in dets if d["cls"] in keep]
         split = "val" if i < n_val else "train"
+        if val_prefixes and p.name.startswith(val_prefixes):   # 按前缀强制划入验证集
+            split = "val"
         h, w = img.shape[:2]
         lines = to_yolo_lines(dets, w, h)
 

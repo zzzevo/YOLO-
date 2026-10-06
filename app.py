@@ -101,7 +101,7 @@ def do_label(src, dst, backend, conf, prompt, val_ratio, cls_mode):
         cmd = [PY, "build_dataset.py", "--src", src, "--dst", dst, "--conf", str(float(conf)),
                "--val-ratio", str(float(val_ratio))]
         if cls_mode.startswith("只保留"):
-            cmd += ["--keep", "1"]          # 1 = 机器人（class0 是另一场比赛，不用管）
+            cmd += ["--keep", "1"]          # 1 = 排球；默认保留全部 2 类（篮球 + 排球）
     else:
         cmd = [PY, "auto_label_world.py", "--src", src, "--dst", dst, "--conf", str(float(conf)),
                "--prompt", prompt or "toy car", "--val-ratio", str(float(val_ratio))]
@@ -222,7 +222,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
 
     with gr.Tab("② 自动标注"):
         gr.Markdown("用模型自动打标生成 YOLO 数据集骨架。**打出来的框必须人工过一遍**。\n\n"
-                    "提示：class0 是另一场比赛的类别、你不用管，所以推荐选「只保留机器人（单类）」。")
+                    "类别已核验：**0 = 篮球，1 = 排球**。两个都要就选「保留全部 2 类」。")
         with gr.Row():
             with gr.Column():
                 src2 = gr.Textbox(label="原始图片目录", value=str(ROOT / "raw_cam"))
@@ -231,8 +231,8 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
                                    value="自己的 best.onnx（最准，推荐）", label="标注后端")
                 prompt = gr.Textbox(label="开放词汇提示词（选 World 时用；写「长相」别写概念，如 toy car）",
                                     value="toy car")
-                cls_mode = gr.Radio(["只保留「机器人」（单类，推荐）", "保留全部 2 类"],
-                                    value="只保留「机器人」（单类，推荐）", label="输出类别")
+                cls_mode = gr.Radio(["保留全部 2 类（篮球+排球，推荐）", "只保留「排球」（单类）"],
+                                    value="保留全部 2 类（篮球+排球，推荐）", label="输出类别")
                 conf2 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度阈值（自动标注宁低勿高）")
                 valr = gr.Slider(0.05, 0.5, value=0.2, step=0.05, label="验证集比例")
                 btn3 = gr.Button("开始自动标注", variant="primary")
@@ -244,9 +244,9 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
     with gr.Tab("③ 训练"):
         with gr.Row():
             with gr.Column():
-                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_demo" / "data.yaml"))
-                model3 = gr.Textbox(label="起始权重", value="yolo26n.pt",
-                                    info="官方预训练 / runs\\recovered\\best_recovered.pt / yolo26n.yaml")
+                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball" / "data.yaml"))
+                model3 = gr.Textbox(label="起始权重", value="runs/recovered/best_recovered.pt",
+                                    info="你上传的 onnx 回填权重 / yolo26n.pt / yolo26n.yaml")
                 with gr.Row():
                     epochs = gr.Number(value=100, label="epochs", precision=0)
                     batch = gr.Number(value=16, label="batch", precision=0)
@@ -270,8 +270,8 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         with gr.Row():
             inp = gr.Image(label="上传图片", type="filepath")
             with gr.Column():
-                model4 = gr.Textbox(label="模型（ONNX）", value=str(ROOT / "best.onnx"),
-                                    info="也可以填 runs\\exp_mix\\weights\\best.onnx 之类")
+                model4 = gr.Textbox(label="模型（.onnx 或 .pt）", value=str(ROOT / "runs" / "ball_v1" / "weights" / "best.onnx"),
+                                    info="也可填 best.onnx（原始）/ runs\\ball_v1\\weights\\best.pt")
                 conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
                 iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
                 btn5 = gr.Button("检测", variant="primary")
