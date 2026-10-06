@@ -116,11 +116,14 @@ def do_label(src, dst, backend, conf, prompt, val_ratio, cls_mode):
 
 # ---------------------------------------------------------------- Tab3 训练
 
-def start_train(data, model, epochs, batch, imgsz, name, single, extra):
+def start_train(data, model, epochs, batch, imgsz, name, single, extra, lr0):
     if not data or not Path(data).exists():
         return "❌ data.yaml 不存在", None
+    if not model or not (Path(model).exists() or model.endswith((".pt", ".yaml"))):
+        return f"❌ 起始权重不存在: {model}", None
     cmd = [PY, "train.py", "--data", data, "--model", model, "--epochs", str(int(epochs)),
            "--batch", str(int(batch)), "--imgsz", str(int(imgsz)), "--name", name,
+           "--lr0", str(float(lr0)),
            "--project", str(ROOT / "runs"), "--workers", "0"]
     if single:
         cmd.append("--single-process")
@@ -244,24 +247,29 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
     with gr.Tab("③ 训练"):
         with gr.Row():
             with gr.Column():
-                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball" / "data.yaml"))
-                model3 = gr.Textbox(label="起始权重", value="runs/recovered/best_recovered.pt",
-                                    info="你上传的 onnx 回填权重 / yolo26n.pt / yolo26n.yaml")
+                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_ms" / "data.yaml"),
+                                   info="dataset_ball_ms=最新(含尺度空间+人工修正) / dataset_ball=旧")
+                model3 = gr.Textbox(label="起始权重", value="runs/ball_v3/weights/best.pt",
+                                    info="接着上次练=最佳 / yolo26n.pt=官方预训练 / best_recovered.pt=原始权重")
                 with gr.Row():
-                    epochs = gr.Number(value=100, label="epochs", precision=0)
+                    epochs = gr.Number(value=80, label="epochs", precision=0)
                     batch = gr.Number(value=16, label="batch", precision=0)
                     imgsz = gr.Number(value=640, label="imgsz", precision=0)
-                name3 = gr.Textbox(label="本次训练名", value="yolo26n_v1")
+                    lr0 = gr.Number(value=0.001, label="lr0 学习率",
+                                    info="接着上次练用 0.001；从官方预训练起手用 0.01")
+                name3 = gr.Textbox(label="本次训练名", value="ball_v4")
                 single = gr.Checkbox(value=False, label="受限/沙箱环境模式（--single-process）")
                 extra = gr.Textbox(label="额外参数（可留空）", value="")
                 btn4 = gr.Button("开始训练", variant="primary")
             with gr.Column():
                 tip = gr.Textbox(label="状态", lines=8,
-                                 value="显存 8GB 建议：batch=16；OOM 就 8；数据集小加 --cache ram（默认已开）\n"
-                                       "训练曲线去 TensorBoard: http://127.0.0.1:6006/")
+                                 value="显存 8GB 建议：batch=16；OOM 就 8\n"
+                                       "接着上次的模型练 → lr0 必须调小(0.001)，否则会把学到的冲掉\n"
+                                       "训练曲线去 TensorBoard: http://127.0.0.1:6006/\n"
+                                       "⚠️ 训练页不导出 ONNX：练完用命令行 python train.py --export-only <best.pt>")
                 logpath = gr.Textbox(label="日志文件", value="")
         log3 = gr.Textbox(label="训练日志（实时）", lines=22)
-        btn4.click(start_train, [data3, model3, epochs, batch, imgsz, name3, single, extra],
+        btn4.click(start_train, [data3, model3, epochs, batch, imgsz, name3, single, extra, lr0],
                    [tip, logpath]).then(poll_train, [logpath, tip], [log3, tip])
 
     with gr.Tab("④ 推理验证"):
