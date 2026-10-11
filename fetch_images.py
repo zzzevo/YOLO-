@@ -63,6 +63,9 @@ def main():
     ap.add_argument("--max-side", type=int, default=4000, help="过大的先缩到该尺寸")
     ap.add_argument("--blur-thresh", type=float, default=40.0, help="糊图阈值，0=不过滤")
     ap.add_argument("--dedup-dist", type=int, default=4, help="平均哈希汉明距离小于该值视为重复")
+    ap.add_argument("--backend", default="auto",
+                    help="搜索引擎后端: auto / duckduckgo / brave / mojeek / yandex。"
+                         "某个被墙或限流时换一个（实测 duckduckgo 超时, brave 可用）")
     args = ap.parse_args()
 
     from ddgs import DDGS
@@ -76,7 +79,10 @@ def main():
     for q in args.queries:
         print(f"\n[搜索] {q}")
         try:
-            results = DDGS().images(q, max_results=args.per_query)
+            if args.backend and args.backend != "auto":
+                results = DDGS().images(q, max_results=args.per_query, backend=args.backend)
+            else:
+                results = DDGS().images(q, max_results=args.per_query)
         except Exception as e:
             print(f"  搜索失败: {type(e).__name__}: {e}")
             continue
