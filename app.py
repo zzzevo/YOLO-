@@ -15,6 +15,7 @@ YOLO26 图形控制台（本地网页 GUI）—— 采集 / 自动标注 / 训�
       2) 开放词汇 YOLO-World（给没见过的类别打标，需要先装 CLIP）
       3) 不标注，只抽帧/整理（交给人工用 X-AnyLabeling 标）
 """
+import json
 import os
 import subprocess
 import sys
@@ -34,6 +35,48 @@ os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".mplconfig"))
 os.environ.setdefault("YOLO_CONFIG_DIR", str(ROOT / ".ultralytics"))
 os.environ.setdefault("PYTHONPATH", str(ROOT))
+
+
+# ---------------------------------------------------------------- 训练互斥（后端拦重复/冲突）
+# 两道保险：
+#   1) 进程内句柄：本次 GUI 启动里发起的训练
+#   2) 锁文件 runs/.training.lock：GUI 重启/刷新后仍能认出"已经有训练在跑"
+#      （训练是独立子进程，关掉网页甚至关掉 GUI 它还在跑）
+_TRAIN = {"proc": None, "log": None, "name": None}
+LOCK = ROOT / "runs" / ".training.lock"
+
+
+def _pid_alive(pid):
+    try:
+        import psutil
+        return psutil.pid_exists(int(pid))
+    except Exception:
+        try:
+            os.kill(int(pid), 0)
+            return True
+        except Exception:
+            return False
+
+
+def training_in_progress():
+    """返回 (是否在跑, 说明文字)"""
+    p = _TRAIN.get("proc")
+    if p is not None and p.poll() is None:
+        return True, f"PID {p.pid}（{_TRAIN.get('name')}）"
+    if LOCK.exists():
+        try:
+            info = json.loads(LOCK.read_text(encoding="utf-8"))
+            if _pid_alive(info.get("pid", 0)):
+                return True, f"PID {info.get('pid')}（{info.get('name')}，{info.get('start','')} 启动）"
+        except Exception:
+            pass
+        LOCK.unlink(missing_ok=True)          # 陈旧锁，清掉
+    return False, ""
+
+
+def clear_train_lock():
+    _TRAIN["proc"] = None
+    LOCK.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------- 工具
@@ -117,10 +160,23 @@ def do_label(src, dst, backend, conf, prompt, val_ratio, cls_mode):
 # ---------------------------------------------------------------- Tab3 训练
 
 def start_train(data, model, epochs, batch, imgsz, name, single, extra, lr0):
+    # ---- 后端拦重复：已经有训练在跑，直接拒绝 ----
+    busy, who = training_in_progress()
+    if busy:
+        return (f"❌ 已有训练在跑（{who}），已拦下这次请求。\n"
+                f"   同时跑两个训练会互相覆盖 runs/ 里的结果。\n"
+                f"   等它结束（按钮会自动恢复），或先停掉那个进程。",
+                None, gr.update(interactive=False))
     if not data or not Path(data).exists():
-        return "❌ data.yaml 不存在", None
+        return "❌ data.yaml 不存在", None, gr.update(interactive=True)
     if not model or not (Path(model).exists() or model.endswith((".pt", ".yaml"))):
-        return f"❌ 起始权重不存在: {model}", None
+        return f"❌ 起始权重不存在: {model}", None, gr.update(interactive=True)
+    # ---- 后端拦冲突：同名目录已存在，拒绝（否则 ultralytics 会偷偷建 xxx-2）----
+    if (ROOT / "runs" / name).exists():
+        return (f"❌ runs/{name} 已存在，名字冲突，已拦下。\n"
+                f"   换个「本次训练名」，或先删掉/移走那个目录。",
+                None, gr.update(interactive=True))
+
     cmd = [PY, "train.py", "--data", data, "--model", model, "--epochs", str(int(epochs)),
            "--batch", str(int(batch)), "--imgsz", str(int(imgsz)), "--name", name,
            "--lr0", str(float(lr0)),
@@ -129,23 +185,33 @@ def start_train(data, model, epochs, batch, imgsz, name, single, extra, lr0):
         cmd.append("--single-process")
     if extra.strip():
         cmd += extra.split()
+
     p, fh, log = _run(cmd, "train", wait=False)
-    return f"✅ 已启动训练（PID {p.pid}）\n日志: {log}\n\nTensorBoard: http://127.0.0.1:6006/", str(log)
+    _TRAIN.update(proc=p, log=str(log), name=name)
+    LOCK.parent.mkdir(parents=True, exist_ok=True)
+    LOCK.write_text(json.dumps({"pid": p.pid, "name": name,
+                                "start": time.strftime("%Y-%m-%d %H:%M:%S")}, ensure_ascii=False),
+                    encoding="utf-8")
+    return (f"✅ 已启动训练（PID {p.pid}）\n日志: {log}\n\n"
+            f"TensorBoard: http://127.0.0.1:6006/\n（训练期间按钮已置灰，结束自动恢复）",
+            str(log), gr.update(interactive=False))
 
 
 def poll_train(logfile, state):
-    """轮询日志文件，把新增内容吐给界面（不用管道）"""
+    """轮询日志文件，把新增内容吐给界面（不用管道）；结束/失败后解锁按钮"""
     if not logfile:
-        yield "（还没开始训练）", state
+        yield "（还没开始训练）", state, gr.update(interactive=True)
         return
-    yield _tail(logfile, 3000), state
-    for _ in range(1800):          # 最多盯 1 小时
+    yield _tail(logfile, 3000), state, gr.update(interactive=False)
+    for _ in range(3600):          # 最多盯 2 小时
         time.sleep(2)
         txt = _tail(logfile, 3000)
-        done = ("epochs completed" in txt) or ("Traceback" in txt) or ("Error" in txt and "error:" in txt)
-        yield txt, ("✅ 结束" if done else state)
+        done = ("epochs completed" in txt) or ("Traceback" in txt) or ("error:" in txt.lower())
         if done:
-            break
+            clear_train_lock()
+            yield txt, "✅ 结束（按钮已恢复）", gr.update(interactive=True)
+            return
+        yield txt, state, gr.update(interactive=False)
 
 
 # ---------------------------------------------------------------- Tab4 推理
@@ -245,6 +311,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         btn3.click(do_label, [src2, dst3, backend, conf2, prompt, valr, cls_mode], [log2, out2])
 
     with gr.Tab("③ 训练"):
+        _busy0, _who0 = training_in_progress()
         with gr.Row():
             with gr.Column():
                 data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_ms" / "data.yaml"),
@@ -260,17 +327,19 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
                 name3 = gr.Textbox(label="本次训练名", value="ball_v4")
                 single = gr.Checkbox(value=False, label="受限/沙箱环境模式（--single-process）")
                 extra = gr.Textbox(label="额外参数（可留空）", value="")
-                btn4 = gr.Button("开始训练", variant="primary")
+                btn4 = gr.Button("开始训练", variant="primary", interactive=not _busy0)
             with gr.Column():
                 tip = gr.Textbox(label="状态", lines=8,
-                                 value="显存 8GB 建议：batch=16；OOM 就 8\n"
-                                       "接着上次的模型练 → lr0 必须调小(0.001)，否则会把学到的冲掉\n"
-                                       "训练曲线去 TensorBoard: http://127.0.0.1:6006/\n"
-                                       "⚠️ 训练页不导出 ONNX：练完用命令行 python train.py --export-only <best.pt>")
+                                 value=(f"⚠️ 检测到已有训练在跑：{_who0}\n按钮已置灰，等它结束会自动恢复。"
+                                        if _busy0 else
+                                        "显存 8GB 建议：batch=16；OOM 就 8\n"
+                                        "接着上次的模型练 → lr0 必须调小(0.001)，否则会把学到的冲掉\n"
+                                        "训练曲线去 TensorBoard: http://127.0.0.1:6006/\n"
+                                        "⚠️ 训练页不导出 ONNX：练完用命令行 python train.py --export-only <best.pt>"))
                 logpath = gr.Textbox(label="日志文件", value="")
         log3 = gr.Textbox(label="训练日志（实时）", lines=22)
         btn4.click(start_train, [data3, model3, epochs, batch, imgsz, name3, single, extra, lr0],
-                   [tip, logpath]).then(poll_train, [logpath, tip], [log3, tip])
+                   [tip, logpath, btn4]).then(poll_train, [logpath, tip], [log3, tip, btn4])
 
     with gr.Tab("④ 推理验证"):
         gr.Markdown("拿**没参与训练的实拍图**来验。训练完先用 `train.py --export-only` 导出 ONNX，"
