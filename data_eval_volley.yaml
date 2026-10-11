@@ -1,0 +1,8 @@
+# 评估新排球视频的 val 帧
+path: D:/18024/Documents/ARM/yolo26_robocup/dataset_ball_v6
+train: val_volley.txt
+val: val_volley.txt
+names:
+  0: 篮球
+  1: 排球
+  2: 定位柱

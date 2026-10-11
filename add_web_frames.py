@@ -44,6 +44,10 @@ def main():
     ap.add_argument("--max-boxes", type=int, default=3)
     ap.add_argument("--min-side", type=int, default=200)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--prefix", default="web_", help="追加帧的文件名前缀")
+    ap.add_argument("--val-ratio", type=float, default=0.0,
+                    help="从追加的帧里划多少比例进验证集（0=全进 train）")
+    ap.add_argument("--names", default="", help="重写 data.yaml 的类别名（逗号分隔），空=不动")
     args = ap.parse_args()
 
     src, dst = Path(args.src), Path(args.dst)
@@ -56,6 +60,15 @@ def main():
             encoding="utf-8")
     (dst / "images" / "train").mkdir(parents=True, exist_ok=True)
     (dst / "labels" / "train").mkdir(parents=True, exist_ok=True)
+    if args.val_ratio > 0:
+        (dst / "images" / "val").mkdir(parents=True, exist_ok=True)
+        (dst / "labels" / "val").mkdir(parents=True, exist_ok=True)
+    if args.names:
+        names = [s.strip() for s in args.names.replace("，", ",").split(",") if s.strip()]
+        (dst / "data.yaml").write_text(
+            f"# 由 add_web_frames.py 重写\npath: {dst.resolve().as_posix()}\n"
+            "train: images/train\nval: images/val\nnames:\n"
+            + "".join(f"  {i}: {n}\n" for i, n in enumerate(names)), encoding="utf-8")
 
     keep_ids = {int(x) for x in args.class_ids.replace("，", ",").split(",") if x.strip()}
     scales = tuple(float(x) for x in args.scales.split(",") if x.strip())
@@ -92,9 +105,10 @@ def main():
             continue
         if args.force_class is not None:
             good = [dict(d, cls=args.force_class) for d in good]
-        name = f"web_{p.stem}"
-        shutil.copyfile(p, dst / "images" / "train" / f"{name}.jpg")
-        (dst / "labels" / "train" / f"{name}.txt").write_text(
+        name = f"{args.prefix}{p.stem}"
+        split = "val" if (args.val_ratio > 0 and kept < int(len(imgs) * args.val_ratio)) else "train"
+        shutil.copyfile(p, dst / "images" / split / f"{name}.jpg")
+        (dst / "labels" / split / f"{name}.txt").write_text(
             "\n".join(to_yolo_lines(good, w, h)), encoding="utf-8")
         kept += 1
         if len(rows) < 8:

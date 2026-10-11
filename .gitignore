@@ -37,6 +37,8 @@ dataset_ball_ms/
 pillar_labels/
 raw_pillar/
 dataset_ball_v5/
+raw_volley/
+dataset_ball_v6/
 dataset_ball_v4/
 review/
 _empty_frames/
