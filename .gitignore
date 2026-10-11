@@ -53,7 +53,15 @@ _*.log
 startup_log.txt
 .gitignore.bak
 _cls_probe/
+_bing_dump.html
+_cand/
 _sheet_*.jpg
+_video_thumb.jpg
+web_plain_labels/
+hue_labels/
+hsv_labels/
+raw_web_bb/
+raw_bb2/
 
 # ---------- 编辑器 / 系统 ----------
 .vscode/
