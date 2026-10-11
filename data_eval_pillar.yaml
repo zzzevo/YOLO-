@@ -1,0 +1,8 @@
+# 只用来评估 pillar：val 指向图片清单，train 随便指向同一个（评估不看 train）
+path: D:/18024/Documents/ARM/yolo26_robocup/dataset_ball_v5
+train: val_pillar.txt
+val: val_pillar.txt
+names:
+  0: 篮球
+  1: 排球
+  2: 定位柱

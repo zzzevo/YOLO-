@@ -34,6 +34,10 @@ dataset_cam/
 raw_images/
 
 dataset_ball_ms/
+pillar_labels/
+raw_pillar/
+dataset_ball_v5/
+dataset_ball_v4/
 review/
 _empty_frames/
 _seq/

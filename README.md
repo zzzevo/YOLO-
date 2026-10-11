@@ -503,3 +503,64 @@ python build_dataset.py --src raw_ball --dst dataset_ball_ms --conf 0.25 --scale
 | `ball_val_predictions.jpg` | 新模型在验证集上的预测拼图（人眼核验用）|
 | `_diag_scale.py` | 尺度盲区的证明脚本 |
 | `find_hard_frames.py` | 找出模型没把握的帧 |
+
+---
+
+## 十、加第三个类：定位柱（ball_v5，2026-10-11）
+
+需求：识别**定位柱**——20cm 宽 × 100cm 高的标记板，**蓝 30 / 绿 40 / 蓝 30**（三段拼成）。
+
+### 为什么这次不用神经网络标注
+
+定位柱是**强饱和的蓝+绿块**，和灰色地面区分度极高。所以直接用颜色分割标注，
+比神经网络更可靠（模型根本不认识新类）：
+
+```powershell
+python auto_label_pillar.py --src raw_pillar --out pillar_labels --class-id 2 --sheet _pillar_check.jpg
+# 334 帧 -> 检出 303 帧（91%），抽查 12 张框全部紧贴整块板
+```
+
+判定逻辑（`auto_label_pillar.py`）：
+1. 分别取蓝、绿的 HSV 掩码 → 合并 + 膨胀让蓝绿段连成一整块
+2. 每个大连通块必须**同时含有足够的蓝和足够的绿**（这就是"定位柱"的签名，能挡掉纯色物体）
+3. 长条形状约束（长短边比 1.3~14）
+4. 取外接矩形 → 就是整块板的框
+
+### 数据集与训练
+
+```powershell
+python add_labeled_frames.py --images raw_pillar --labels pillar_labels `
+    --base dataset_ball_v4 --dst dataset_ball_v5 --val-ratio 0.2 `
+    --names "篮球,排球,定位柱" --prefix pl_
+# dataset_ball_v5: train 754 / val 143（球 511 + 定位柱 243）
+
+python train.py --data dataset_ball_v5\data.yaml --model runs\ball_v4\weights\best.pt `
+    --epochs 80 --lr0 0.001 --name ball_v5 --single-process
+```
+
+> **关键点：类别数从 2 变 3**。日志里出现 `Overriding model.yaml nc=2 with nc=3` 和
+> **`Transferred 708/708 items from pretrained weights`** —— ultralytics 把旧模型的权重
+> **全部迁移**了过来（检测头的类分支按重叠通道对齐），所以球类的能力没有被重置。
+
+### 结果（分开两套验证集，才说得清各自表现）
+
+| 验证集 | 模型 | P | R | mAP50 | mAP50-95 |
+|---|---|---|---|---|---|
+| 球（83 帧） | ball_v4（2 类） | 0.985 | 0.9778 | 0.990 | 0.8793 |
+| 球（83 帧） | **ball_v5（3 类）** | **0.9979** | 0.9667 | 0.9906 | **0.8861** |
+| **定位柱（60 帧）** | **ball_v5** | **0.9989** | **1.000** | **0.995** | — |
+
+**结论**：加第三类**没有让球类退化**（mAP50-95 反而略升），定位柱 mAP50 0.995、召回 100%。
+视觉证据 `pillar_predictions.jpg`（12/12 帧框准，远近/旋转都对）。
+
+> 口径说明：定位柱的验证标签来自颜色标注器本身（不是人工），所以这几个数字衡量的是
+> "模型与标注器的一致度"；标注器本身已抽查 12/12 准确。要更硬的结论，人工修一批再测。
+
+### 新增工具
+
+| 文件 | 用途 |
+|---|---|
+| `auto_label_pillar.py` | 颜色+形状自动标注定位柱（蓝绿签名 + 长条约束）|
+| `add_labeled_frames.py` | 把**已标好**的图片+标签导入数据集（支持划分验证集、改类名）|
+| `data_eval_ball.yaml` / `data_eval_pillar.yaml` | 分开评估用的两套 yaml（val 指向图片清单）|
+| `pillar_predictions.jpg` | 定位柱预测肉眼验证图 |

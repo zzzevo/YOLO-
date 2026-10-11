@@ -26,7 +26,12 @@ def main():
     ap.add_argument("--cols", type=int, default=4)
     args = ap.parse_args()
 
-    files = sorted(glob.glob(str(ROOT / args.imgs / "*.jpg")))
+    # --imgs 可以是目录，也可以是一个 .txt 图片清单（便于只测某一类，如定位柱）
+    src = ROOT / args.imgs
+    if src.suffix.lower() == ".txt" and src.exists():
+        files = [l.strip() for l in src.read_text(encoding="utf-8").splitlines() if l.strip()]
+    else:
+        files = sorted(glob.glob(str(src / "*.jpg")))
     if not files:
         raise SystemExit("没有验证图片")
     if len(files) > args.n:
