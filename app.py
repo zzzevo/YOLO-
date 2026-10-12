@@ -314,9 +314,9 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         _busy0, _who0 = training_in_progress()
         with gr.Row():
             with gr.Column():
-                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_v6" / "data.yaml"),
-                                   info="dataset_ball_v6=最新(3类+新排球场地) / v5=旧 / dataset_ball_v4=2类")
-                model3 = gr.Textbox(label="起始权重", value="runs/ball_v6/weights/best.pt",
+                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_v8" / "data.yaml"),
+                                   info="dataset_ball_v8=最新(3类+4段视频+CLIP复核网图) / v6=旧 / dataset_ball_v4=2类")
+                model3 = gr.Textbox(label="起始权重", value="runs/ball_v8/weights/best.pt",
                                     info="接着上次练=最佳 / yolo26n.pt=官方预训练 / best_recovered.pt=原始权重")
                 with gr.Row():
                     epochs = gr.Number(value=80, label="epochs", precision=0)
@@ -324,7 +324,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
                     imgsz = gr.Number(value=640, label="imgsz", precision=0)
                     lr0 = gr.Number(value=0.001, label="lr0 学习率",
                                     info="接着上次练用 0.001；从官方预训练起手用 0.01")
-                name3 = gr.Textbox(label="本次训练名", value="ball_v7")
+                name3 = gr.Textbox(label="本次训练名", value="ball_v9")
                 single = gr.Checkbox(value=False, label="受限/沙箱环境模式（--single-process）")
                 extra = gr.Textbox(label="额外参数（可留空）", value="")
                 btn4 = gr.Button("开始训练", variant="primary", interactive=not _busy0)
@@ -347,7 +347,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         with gr.Row():
             inp = gr.Image(label="上传图片", type="filepath")
             with gr.Column():
-                model4 = gr.Textbox(label="模型（.onnx 或 .pt）", value=str(ROOT / "runs" / "ball_v6" / "weights" / "best.onnx"),
+                model4 = gr.Textbox(label="模型（.onnx 或 .pt）", value=str(ROOT / "runs" / "ball_v8" / "weights" / "best.onnx"),
                                     info="也可填 best.onnx(原始) / runs\\ball_v3\\weights\\best.pt / ball_v1")
                 conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
                 iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")

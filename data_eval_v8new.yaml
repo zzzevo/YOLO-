@@ -1,0 +1,8 @@
+# 评估新视频(视频4 篮球)
+path: D:/18024/Documents/ARM/yolo26_robocup/dataset_ball_v8
+train: val_v8new.txt
+val: val_v8new.txt
+names:
+  0: 篮球
+  1: 排球
+  2: 定位柱

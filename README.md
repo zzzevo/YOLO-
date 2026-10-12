@@ -614,3 +614,103 @@ python add_web_frames.py --src raw_volley --base dataset_ball_v5 --dst dataset_b
 | `volley_label_check.jpg` | 新帧标签抽查 |
 | `data_eval_volley.yaml` | 新排球验证集（val 指向 `dataset_ball_v6/val_volley.txt`）|
 | `add_web_frames.py` 新参数 | `--prefix`（文件名前缀）、`--val-ratio`（追加帧也划验证集）、`--names`（重写类名）|
+
+---
+
+## 十二、3 段新视频 + 网图爬取的结论（ball_v7，2026-10-12）
+
+### 3 段视频（有效，已进数据集）
+
+| 视频 | 规格 | 抽帧 | 内容 |
+|---|---|---|---|
+| 视频1 | 720×1280 / 95 秒 | 115 | 篮球 + 绿球 + 排球（多球同框）|
+| 视频2 | 1280×720 / 109 秒 | 131 | 排球（横屏，新视角）|
+| 视频3 | 1280×720 / 115 秒 | 138 | 篮球（横屏，新视角）|
+
+用 v6 自动标注（保留全部类别，conf≥0.45）→ `dataset_ball_v7: train 1294 / val 278`。
+抽帧标签抽查 12/12 准（`v7_label_check.jpg`）。
+
+### 网图爬取：**自动标注的正解是"模型检测 + CLIP 语义复核"**（2026-10-12 突破）
+
+爬取本身从来不是问题（`fetch_images_bing.py` 直抓 Bing，**单轮 368 张**）。瓶颈在**标注**：
+模型会把橙子、玫瑰、彩虹、地图、人脸、商标都当成球，而**形状/颜色启发式分不清"橙子"和"橙色篮球"**
+（三轮实测都失败，见下表）。**CLIP 是语义模型，它知道这个区别** —— 于是：
+
+```powershell
+python clip_filter.py --src raw_web_big --conf 0.45        # 先看判别效果（出 clip_check.jpg）
+# 实测 139 个候选：CLIP 判"是球">=0.9 的 30 个**全是真球**；
+#   被否掉的，CLIP 给的理由正是我肉眼看到的："an orange fruit"/"a flower"/"a plant or grass"
+python add_web_frames.py --src raw_web_big --dst dataset_ball_v8 `
+    --model runs/ball_v6/weights/best.onnx --scales 1.0,0.6 --conf 0.5 --class-ids 0,1 `
+    --prefix web_ --clip-filter --clip-thr 0.9
+# 368 张 -> 保留 72 张（无检测 105 / 置信度低 122 / **CLIP 否定 91**）
+```
+
+| 尝试 | 做法 | 结果 |
+|---|---|---|
+| 1 | 模型直接检测（conf≥0.45）| 12 张抽查 3~4 张垃圾：**地图标记、人脸**被框 |
+| 2 | +"单一主色 + 圆形填充率" | 仍有 **黄玫瑰、`go green` 草地、ZOL 水印、`blue` 文字**被框 |
+| 3 | +圆度≥0.60 + 凸性≥0.88 + 长宽比 | 12 张里只剩 2 张对：**"orange"商标、浏览器截图、橙色漩涡、真的橙子、品红圆点**全中招 |
+| **4** | **+CLIP 语义复核（P(球)≥0.9）** | **12/12 全是真球**（`clip_added_check.jpg`、`clip_check.jpg`）|
+
+**结论**：想用网图，必须过 CLIP 这道闸；不过闸的标签会教模型"橙子=篮球"，比没数据更糟。
+本轮 72 张干净网图（篮球 47 框 / 排球 40 框）已进 `dataset_ball_v8`。
+
+---
+
+## 十三、ball_v8：第 4 段视频 + 173 张 CLIP 复核网图
+
+### 数据
+
+| 来源 | 数量 | 说明 |
+|---|---|---|
+| 视频4（篮球，544×960/156 秒）| 188 帧抽 → 149 进 train / 37 进 val | 橙色篮球，`s4_` 前缀 |
+| 网图第 1 批（32 个关键词）| 368 张爬 → **72 张**过 CLIP | `web_*` |
+| 网图第 2 批（32 个新关键词）| 362 张爬 → **101 张**过 CLIP（阈值放宽到 0.85）| `web_*` |
+
+合计 **爬 730 + 295 + 94 张，最终 173 张干净网图进训练集**。
+`dataset_ball_v8: train 1585 / val 315`（3 类）。
+
+训练：从 `ball_v7` 继续 80 轮（`Transferred 708/708 items`，标签 0 corrupt）。
+
+### 结果（四个验证集，v6 → v7 → v8）
+
+| 验证集 | 模型 | P | R | mAP50 | mAP50-95 |
+|---|---|---|---|---|---|
+| 球（83 帧，旧场景） | v6 | 0.9876 | 0.9602 | 0.9910 | 0.8851 |
+| 球（83 帧） | v7 | 0.9714 | 0.9778 | 0.9914 | 0.8829 |
+| 定位柱（60 帧） | v6 | 0.9990 | 1.0000 | 0.9950 | 0.9427 |
+| 定位柱（60 帧） | **v7** | 0.9990 | 1.0000 | 0.9950 | **0.9647** ↑ |
+| 新排球（59 帧） | v6 | 0.7316 | 0.9790 | 0.7462 | 0.6451 |
+| 新排球（59 帧） | v7 | 0.4788 | **1.0000** | 0.5268 | 0.5142 |
+| 新视频4（37 帧） | v6 / v7 | 0.95 / 0.94 | 0.99 / 0.99 | 0.994 / 0.994 | 0.994 / 0.985 |
+
+> **"新排球"那一行 v7 变低，不代表变差**：那套验证标签是 v5 自己打的（多球场景必然漏标），
+> v7 的 **R=1.000 但 P 低**，说明它把 v5 漏标的球（绿球、篮球）也检出来了——按不完整标签算就是"误检"。
+> 这是**伪标签上限**的典型表现，不是能力退化。真正可信的横向结论只有：
+> **定位柱 mAP50-95 0.9427→0.9647**，旧场景球类持平。
+
+### 本轮新增工具
+
+| 文件 | 用途 |
+|---|---|
+| `clip_filter.py` | **用 CLIP 对检测框做语义复核**（解决网图标注污染，本项目的关键突破）|
+| `add_web_frames.py --clip-filter --clip-thr` | 把 CLIP 复核接进标注流水线 |
+| `prepare_web_review.py` | 网图的 X-AnyLabeling 复核工程（CLIP 之后仍存疑时的兜底）|
+| `data_eval_v8new.yaml` | 视频4 的验证集 |
+
+### 历史清理（本轮完成）
+
+`.git` 从 **120 MB → 11 MB**，远端文件数 **~2500 → 65**：
+
+```bash
+git filter-branch -f --index-filter "git rm -r --cached --ignore-unmatch \
+    dataset_ball_v4 raw_web_bb hue_labels web_plain_labels hsv_labels raw_bb2 raw_pillar raw_volley review" \
+    --prune-empty -- --all
+rm -rf .git/refs/original && git reflog expire --expire=now --all && git gc --prune=now
+git push --force origin main
+```
+
+> 注意：GitHub 的 API 仍会显示 93 MB 一段时间——强推后旧对象变成"不可达"，
+> 要等 GitHub 自己 gc 才会真正释放。**远端内容已经是干净的**（`api.github.com/.../git/trees/main`
+> 只有 65 个文件，数据目录 0 个、最大文件是故意保留的 `best.onnx` 9.5MB）。
