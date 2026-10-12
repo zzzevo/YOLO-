@@ -1,0 +1,8 @@
+# 评估远距离定位柱
+path: D:/18024/Documents/ARM/yolo26_robocup/dataset_ball_v10
+train: val_pillar_far.txt
+val: val_pillar_far.txt
+names:
+  0: 篮球
+  1: 排球
+  2: 定位柱
