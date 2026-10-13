@@ -26,31 +26,7 @@ import cv2
 import gradio as gr
 import numpy as np
 
-# 摄像头预览镜像：Gradio 的 WebcamOptions(mirror=) 在不同前端版本表现不一致，
-# 这里直接用 CSS 把摄像头控件里的 video/canvas/img 水平翻转，稳且可预期。
-CUSTOM_CSS = """
-.mirror-cam video, .mirror-cam canvas, .mirror-cam img {
-    transform: scaleX(-1) !important;
-}
-#buildstamp { font-size: 12px; color: #888; }
-"""
-
-# CSS 在部分前端版本作用不到摄像头预览元素，这里再用 JS 直接翻。
-# 改的是同一个 transform 属性，所以即使 CSS 也生效也只是单次翻转，不会叠加。
-MIRROR_JS = """
-() => {
-  const flip = () => {
-    document.querySelectorAll('.mirror-cam video, .mirror-cam canvas, .mirror-cam img, video').forEach(e => {
-      e.style.transform = 'scaleX(-1)';
-      e.style.webkitTransform = 'scaleX(-1)';
-      e.style.objectFit = e.style.objectFit || '';
-    });
-  };
-  flip();
-  if (!window.__mirrorTimer) window.__mirrorTimer = setInterval(flip, 700);
-  return [];
-}
-"""
+CUSTOM_CSS = ""          # 不再需要自定义 CSS（镜像已移除）
 
 BUILD_STAMP = "build " + __import__("time").strftime("%Y-%m-%d %H:%M")
 
@@ -315,7 +291,7 @@ def ping_test():
 _last_live = [0.0]
 
 
-def detect_video(video_path, conf, iou, model_path, mirror_out=True,
+def detect_video(video_path, conf, iou, model_path,
                  max_frames=900, progress=gr.Progress()):
     """上传视频 → 逐帧检测 → 输出画框视频。完全不依赖浏览器摄像头，最稳。"""
     if not video_path:
@@ -336,7 +312,7 @@ def detect_video(video_path, conf, iou, model_path, mirror_out=True,
         ok, frame = cap.read()
         if not ok:
             break
-        vis, msg = _safe_live(frame, conf, iou, model_path, mirror_out, log=False)
+        vis, msg = _safe_live(frame, conf, iou, model_path, log=False)
         if vis is not None:
             vw.write(cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
         # 统计
@@ -359,7 +335,7 @@ def detect_video(video_path, conf, iou, model_path, mirror_out=True,
     return str(out), txt
 
 
-def _safe_live(frame, conf, iou, model_path, mirror_out, log=True):
+def _safe_live(frame, conf, iou, model_path, log=True):
     """统一入口：规范通道 + 异常兜底"""
     if frame is None:
         return None, "（没有画面）"
@@ -368,23 +344,23 @@ def _safe_live(frame, conf, iou, model_path, mirror_out, log=True):
             frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
         elif frame.shape[2] == 4:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
-        return _live_core(frame, conf, iou, model_path, bool(mirror_out), log=log)
+        return _live_core(frame, conf, iou, model_path, log=log)
     except Exception as e:
         import traceback
         _loglive("ERROR " + traceback.format_exc()[-500:])
         return frame, f"❌ 服务端出错: {type(e).__name__}: {e}"
 
 
-def on_cam_change(frame, conf, iou, model_path, mirror_out=True):
+def on_cam_change(frame, conf, iou, model_path):
     """摄像头值变化时触发（拍照模式也能用）+ 防抖，避免和流式双触发"""
     now = time.time()
     if now - _last_live[0] < 0.12:
         return gr.update(), gr.update()
     _last_live[0] = now
-    return _safe_live(frame, conf, iou, model_path, mirror_out)
+    return _safe_live(frame, conf, iou, model_path)
 
 
-def grab_once(frame, conf, iou, model_path, mirror_out=True):
+def grab_once(frame, conf, iou, model_path):
     """手动抓当前摄像头画面检测一次——流式万一不工作时用这个。"""
     if frame is None:
         return None, "还没有摄像头画面，先点一下摄像头框、允许摄像头"
@@ -394,7 +370,7 @@ def grab_once(frame, conf, iou, model_path, mirror_out=True):
         elif frame.shape[2] == 4:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
         _loglive(f"grab_once shape={frame.shape}")
-        return _live_core(frame, conf, iou, model_path, bool(mirror_out))
+        return _live_core(frame, conf, iou, model_path)
     except Exception as e:
         import traceback
         _loglive("ERROR grab_once " + traceback.format_exc()[-500:])
@@ -448,12 +424,12 @@ except Exception:
     QR_PATH = None
 
 
-def live_detect(frame, conf, iou, model_path, mirror_out=True):
+def live_detect(frame, conf, iou, model_path):
     """流式摄像头每帧回调"""
-    return _safe_live(frame, conf, iou, model_path, mirror_out)
+    return _safe_live(frame, conf, iou, model_path)
 
 
-def _live_core(frame, conf, iou, model_path, mirror_out, log=True):
+def _live_core(frame, conf, iou, model_path, log=True):
     img = np.ascontiguousarray(frame[:, :, ::-1])          # RGB -> BGR
     global _PT, _PT_PATH, _DET, _DET_PATH
 
@@ -478,8 +454,6 @@ def _live_core(frame, conf, iou, model_path, mirror_out, log=True):
         if log:
             _loglive(f"frame#{_n[0]} {img.shape} GPU {dt:.0f}ms det={len(r.boxes)} conf={conf}")
         msg = f"已收到 {_n[0]} 帧\n" + msg
-        if mirror_out:
-            vis = cv2.flip(vis, 1)
         return cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), msg
 
     from infer_onnx import Detector, draw, CLASS_NAMES
@@ -502,8 +476,6 @@ def _live_core(frame, conf, iou, model_path, mirror_out, log=True):
     if log:
         _loglive(f"frame#{_n[0]} {img.shape} CPU {dt:.0f}ms det={len(dets)} conf={conf}")
     msg = f"已收到 {_n[0]} 帧\n" + msg
-    if mirror_out:
-        vis = cv2.flip(vis, 1)
     return cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), msg
 
 
@@ -615,8 +587,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
             with gr.Column(scale=1):
                 cam = gr.Image(label="① 摄像头（点这里开）", sources=["webcam"],
                                streaming=True, type="numpy", height=300,
-                               elem_classes=["mirror-cam"],
-                               webcam_options=gr.WebcamOptions(mirror=False))
+                               )
                 with gr.Row():
                     ping_btn = gr.Button("先点这个：通道自检", variant="secondary", size="sm")
                     grab_btn = gr.Button("抓一帧检测", variant="secondary", size="sm")
@@ -639,7 +610,6 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
             conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
             iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
             every = gr.Slider(0.05, 1.0, value=0.2, step=0.05, label="实时刷新间隔(秒)")
-            mirror4 = gr.Checkbox(value=True, label="镜像识别结果（和预览保持一致）")
         with gr.Accordion("上传图片检测", open=False):
             with gr.Row():
                 inp = gr.Image(label="上传图片", type="filepath", height=260)
@@ -649,15 +619,14 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
             out5 = gr.Image(label="检测结果图", height=260)
         btn5.click(do_predict, [inp, conf4, iou4, model4], [out5, msg4])
         ping_btn.click(ping_test, None, [live_msg])
-        grab_btn.click(grab_once, [cam, conf4, iou4, model4, mirror4], [out4, live_msg])
-        cam.change(on_cam_change, [cam, conf4, iou4, model4, mirror4], [out4, live_msg])
-        cam.stream(live_detect, [cam, conf4, iou4, model4, mirror4], [out4, live_msg],
+        grab_btn.click(grab_once, [cam, conf4, iou4, model4], [out4, live_msg])
+        cam.change(on_cam_change, [cam, conf4, iou4, model4], [out4, live_msg])
+        cam.stream(live_detect, [cam, conf4, iou4, model4], [out4, live_msg],
                    stream_every=0.2, time_limit=None, concurrency_limit=1)
-        vid_btn.click(detect_video, [vid, conf4, iou4, model4, mirror4], [vid_out, vid_msg])
+        vid_btn.click(detect_video, [vid, conf4, iou4, model4], [vid_out, vid_msg])
 
     gr.Markdown("---\n**典型流程**：①抽帧/搜图 → ②自动标注 → 用 X-AnyLabeling 人工校对 → ③训练 → ④推理验证 → "
                 "`python train.py --export-only <best.pt>` 导出 ONNX")
-    demo.load(None, None, None, js=MIRROR_JS)   # 页面加载后持续翻转预览（镜像）
 
 
 if __name__ == "__main__":
