@@ -54,6 +54,15 @@ pillar_far_labels/
 raw_pillar_far/
 dataset_ball_v10/
 dataset_ball_v11/
+live_params.json
+raw_web_v6/
+raw_web_v5/
+raw_web_v4/
+raw_web_v2/
+raw_web_v3/
+dataset_ball_v14/
+dataset_ball_v13/
+dataset_ball_v12/
 raw_good_test/
 raw_good*/
 certs/

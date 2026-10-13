@@ -1,0 +1,8 @@
+# 网图专用验证集（从网图里抽出来的，不参与训练）
+path: D:/18024/Documents/ARM/yolo26_robocup/dataset_ball_v13
+train: val_web.txt
+val: val_web.txt
+names:
+  0: 篮球
+  1: 排球
+  2: 定位柱
