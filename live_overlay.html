@@ -3,71 +3,230 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>实时识别（画面上直接画框）</title>
+<title>实时识别（画面上直接画框 + 可调参数）</title>
 <style>
-  html,body{margin:0;height:100%;background:#111;color:#eee;font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;}
-  #wrap{position:relative;width:100vw;height:100vh;overflow:hidden;}
-  #view{display:block;width:100%;height:100%;object-fit:contain;background:#000;}
-  #bar{position:absolute;left:0;right:0;top:0;padding:6px 10px;font-size:13px;line-height:1.5;
+  html,body{margin:0;height:100%;background:#111;color:#eee;
+            font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;}
+  #wrap{display:flex;flex-direction:column;height:100vh;}
+  #stage{position:relative;flex:1 1 auto;min-height:0;overflow:hidden;background:#000;}
+  #view{display:block;width:100%;height:100%;object-fit:contain;}
+  #bar{position:absolute;left:0;right:0;top:0;padding:5px 9px;font-size:12px;line-height:1.45;
        background:linear-gradient(#000c,#0000);pointer-events:none;}
   #bar b{color:#6f6}
   #start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-         gap:14px;background:#000d;text-align:center;padding:20px;}
-  #start h2{margin:0;font-size:20px}
-  button{font-size:18px;padding:12px 22px;border-radius:10px;border:0;background:#2b7fff;color:#fff;font-weight:600}
+         gap:12px;background:#000d;text-align:center;padding:16px;}
+  #start h2{margin:0;font-size:19px}
+  button{font-size:15px;padding:10px 16px;border-radius:9px;border:0;background:#2b7fff;color:#fff;font-weight:600}
+  button.sec{background:#444}
   #tips{font-size:12px;color:#aaa;max-width:520px}
-  #qr{background:#fff;padding:8px;border-radius:8px}
+  #qr{background:#fff;padding:6px;border-radius:6px}
   video{display:none}
+  /* ---- 参数面板 ---- */
+  #panel{flex:0 0 auto;max-height:46vh;overflow:auto;background:#181818;
+         border-top:1px solid #333;padding:10px 12px 24px;}
+  #phead{display:flex;align-items:center;gap:10px;justify-content:space-between;
+         position:sticky;top:-10px;background:#181818;padding:6px 0;z-index:2}
+  #phead h3{margin:0;font-size:15px}
+  .row{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;margin:9px 0}
+  .row label{font-size:13px;color:#ddd}
+  .row .v{font-variant-numeric:tabular-nums;color:#6f6;font-size:13px;min-width:52px;text-align:right}
+  input[type=range]{width:100%;grid-column:1 / -1;margin:0}
+  .hint{font-size:11.5px;color:#999;grid-column:1 / -1;line-height:1.45}
+  #msg{font-size:12.5px;color:#ffd93d;min-height:18px;margin-top:6px}
+  .cls{color:#3da5ff}
 </style>
 </head>
 <body>
 <div id="wrap">
-  <canvas id="view"></canvas>
-  <div id="bar">
-    <div>模型 <b id="model">-</b>　推理 <b id="ms">-</b> ms　上传 <b id="upfps">-</b> fps　延迟 <b id="rtt">-</b> ms</div>
-    <div id="det">等待开始…</div>
-  </div>
-  <div id="start">
-    <h2>实时识别 · 手机摄像头</h2>
-    <div>框会直接画在实时画面上，并跟着球走</div>
-    <button id="go">开启摄像头</button>
-    <div id="qrbox">
-      <div>电脑上打开本页面时，可用手机扫这个码：</div>
-      <img id="qr" width="150" height="150" src="/qr.png" alt="QR">
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div id="bar">
+      <div>模型 <b id="model">-</b>　推理 <b id="ms">-</b> ms　上传 <b id="upfps">-</b> fps　延迟 <b id="rtt">-</b> ms</div>
+      <div id="det">等待开始…</div>
     </div>
-    <div id="tips">需要 HTTPS（手机浏览器规则）；画面不上传保存，只在内存里做推理。</div>
+    <div id="start">
+      <h2>实时识别 · 手机摄像头</h2>
+      <div>框会直接画在实时画面上，并跟着球走</div>
+      <button id="go">开启摄像头</button>
+      <div id="qrbox">
+        <div style="font-size:12px;color:#aaa">电脑上打开本页时，手机扫这个码：</div>
+        <img id="qr" width="140" height="140" src="/qr.png" alt="QR">
+      </div>
+      <div id="tips">需要 HTTPS（手机浏览器规则）。画面不保存，只在内存里推理。</div>
+    </div>
+    <video id="cam" playsinline muted></video>
   </div>
-  <video id="cam" playsinline muted></video>
+
+  <div id="panel">
+    <div id="phead">
+      <h3>⚙️ 参数调整（改完点右侧保存）</h3>
+      <div>
+        <button id="save" class="sec">保存并应用</button>
+        <button id="reset" class="sec">恢复默认</button>
+      </div>
+    </div>
+    <div id="msg"></div>
+
+    <div class="row">
+      <label>总置信度门槛 <span class="v" id="v_conf">-</span></label>
+      <span></span>
+      <input type="range" id="conf" min="0.05" max="0.9" step="0.01">
+      <div class="hint">认错（把球认成别的）调高；漏检（没框）调低。默认 0.30</div>
+    </div>
+
+    <div class="row">
+      <label>NMS IoU <span class="v" id="v_iou">-</span></label>
+      <span></span>
+      <input type="range" id="iou" min="0.1" max="0.9" step="0.05">
+      <div class="hint">同一个球出现好几个框 → 调低；两个球挨着只框到一个 → 调高。默认 0.45</div>
+    </div>
+
+    <div class="row">
+      <label class="cls">每类门槛 · 篮球 <span class="v" id="v_c0">-</span></label>
+      <span></span>
+      <input type="range" id="c0" min="0.05" max="0.9" step="0.01">
+      <div class="hint">某一类老认错就单独调高它；老漏就单独调低</div>
+    </div>
+    <div class="row">
+      <label class="cls">每类门槛 · 排球 <span class="v" id="v_c1">-</span></label>
+      <span></span>
+      <input type="range" id="c1" min="0.05" max="0.9" step="0.01">
+    </div>
+    <div class="row">
+      <label class="cls">每类门槛 · 定位柱 <span class="v" id="v_c2">-</span></label>
+      <span></span>
+      <input type="range" id="c2" min="0.05" max="0.9" step="0.01">
+    </div>
+
+    <div class="row">
+      <label>最小框（像素） <span class="v" id="v_min">-</span></label>
+      <span></span>
+      <input type="range" id="minpx" min="0" max="120" step="2">
+      <div class="hint">过滤远处小噪点误检（按上传帧像素算）。0 = 不过滤</div>
+    </div>
+
+    <div class="row">
+      <label>上传帧宽度 <span class="v" id="v_uw">-</span></label>
+      <span></span>
+      <input type="range" id="uw" min="320" max="1280" step="160">
+      <div class="hint">大 → 远处小球更准但更卡；小 → 更流畅。默认 640</div>
+    </div>
+
+    <div class="row">
+      <label>上传帧率上限 <span class="v" id="v_uf">-</span></label>
+      <span></span>
+      <input type="range" id="uf" min="2" max="30" step="1">
+      <div class="hint">服务器快就调高（更跟手），卡就调低</div>
+    </div>
+
+    <div class="row">
+      <label>框跟随平滑 <span class="v" id="v_sm">-</span></label>
+      <span></span>
+      <input type="range" id="sm" min="0.1" max="0.9" step="0.05">
+      <div class="hint">大 = 跟得更紧（略抖）；小 = 更顺滑（略拖</div>
+    </div>
+
+    <div class="row">
+      <label>丢失后保留(ms) <span class="v" id="v_cm">-</span></label>
+      <span></span>
+      <input type="range" id="cm" min="0" max="1500" step="50">
+      <div class="hint">球被短暂挡住时框保留多久，避免一闪一闪</div>
+    </div>
+
+    <div class="hint" style="margin-top:12px;color:#8ab4f8">
+      保存后写入 <b>live_params.json</b>（覆盖原参数），下次启动自动读取；
+      点「下载参数文件」可拿到 JSON 带到部署端。
+      <a id="dl" href="/params.json" style="color:#8ab4f8">下载参数文件</a>
+    </div>
+  </div>
 </div>
+
 <script>
 const video = document.getElementById('cam');
 const view  = document.getElementById('view');
 const ctx   = view.getContext('2d');
 const work  = document.createElement('canvas');
 const wctx  = work.getContext('2d');
+const $ = id => document.getElementById(id);
 
-const UPLOAD_W   = 640;      // 上传给服务器的宽度（越小越快）
-const JPEG_Q     = 0.6;      // 上传画质
-let   UPLOAD_FPS = 12;       // 每秒上传多少帧（服务器推理是瓶颈）
-const SMOOTH     = 0.45;     // 框跟随时平滑系数（越大越跟手、越小越顺滑）
-const COAST_MS   = 600;      // 目标短暂丢失后框保留多久（看起来“一直跟着”）
-
-let running=false, tracks=[], lastMsg=0, rtt=0, sendT=0, inFlight=false;
-let inferW=640, inferH=480, serverMs=0, upCnt=0, upFps=0;
+// 默认值（会从服务器 /params 覆盖）
+let P = {conf:0.30, iou:0.45, upload_w:640, upload_fps:12, smooth:0.45, coast_ms:600, min_px:0,
+         cls_conf:{}};
+let tracks=[], running=false, inFlight=false, sendT=0, rtt=0;
+let inferW=640, inferH=480, serverMs=0, upCnt=0, upFps=0, autoFps=true;
 
 function iou(a,b){
   const ix=Math.max(0,Math.min(a[2],b[2])-Math.max(a[0],b[0]));
   const iy=Math.max(0,Math.min(a[3],b[3])-Math.max(a[1],b[1]));
-  const inter=ix*iy;
-  const ua=(a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-inter;
+  const inter=ix*iy, ua=(a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-inter;
   return ua>0?inter/ua:0;
 }
 const COLORS=['#22d36b','#ff8a3d','#3da5ff','#ffd93d'];
+const CLS=['篮球','排球','定位柱'];
 
+/* ---------- 参数面板 ---------- */
+function setPanel(){
+  $('conf').value=P.conf; $('iou').value=P.iou;
+  $('c0').value=(P.cls_conf[CLS[0]]??0.35);
+  $('c1').value=(P.cls_conf[CLS[1]]??0.35);
+  $('c2').value=(P.cls_conf[CLS[2]]??0.25);
+  $('minpx').value=P.min_px; $('uw').value=P.upload_w; $('uf').value=P.upload_fps;
+  $('sm').value=P.smooth; $('cm').value=P.coast_ms;
+  showVals();
+}
+function showVals(){
+  $('v_conf').textContent=(+$('conf').value).toFixed(2);
+  $('v_iou').textContent=(+$('iou').value).toFixed(2);
+  $('v_c0').textContent=(+$('c0').value).toFixed(2);
+  $('v_c1').textContent=(+$('c1').value).toFixed(2);
+  $('v_c2').textContent=(+$('c2').value).toFixed(2);
+  $('v_min').textContent=$('minpx').value;
+  $('v_uw').textContent=$('uw').value;
+  $('v_uf').textContent=$('uf').value;
+  $('v_sm').textContent=(+$('sm').value).toFixed(2);
+  $('v_cm').textContent=$('cm').value;
+}
+function collect(){
+  return {conf:+$('conf').value, iou:+$('iou').value,
+          cls_conf:{[CLS[0]]:+$('c0').value,[CLS[1]]:+$('c1').value,[CLS[2]]:+$('c2').value},
+          min_px:+$('minpx').value, upload_w:+$('uw').value, upload_fps:+$('uf').value,
+          smooth:+$('sm').value, coast_ms:+$('cm').value};
+}
+// 拖动时只更新本地显示（传输/显示类立即生效，推理类等服务端确认）
+['conf','iou','c0','c1','c2','minpx','uw','uf','sm','cm'].forEach(id=>{
+  $(id).addEventListener('input', ()=>{ showVals(); P=Object.assign(P, collect()); autoFps=false; });
+});
+
+async function loadParams(){
+  try{
+    const r = await fetch('/params'); const d = await r.json();
+    P = Object.assign(P, d.params);
+    if(d.model) $('model').textContent = d.model;
+    setPanel();
+    $('msg').textContent = '已载入 ' + (d.saved_file||'live_params.json') + ' 的参数（若不存在则用默认值）';
+  }catch(e){ setPanel(); }
+}
+$('save').onclick = async ()=>{
+  const body = JSON.stringify(collect());
+  $('msg').textContent='保存中…';
+  try{
+    const r = await fetch('/params',{method:'POST',body,headers:{'Content-Type':'application/json'}});
+    const d = await r.json();
+    P = Object.assign(P, d.params); setPanel();
+    $('msg').textContent = d.ok ? ('✅ '+d.msg) : ('❌ '+d.msg);
+  }catch(e){ $('msg').textContent='❌ 保存失败: '+e; }
+};
+$('reset').onclick = async ()=>{
+  const r = await fetch('/params/reset',{method:'POST'});
+  const d = await r.json(); P = Object.assign(P, d.params); setPanel();
+  $('msg').textContent='已恢复默认：'+d.msg;
+};
+
+/* ---------- 画面与跟踪 ---------- */
 function resize(){
   const r = video.videoWidth/video.videoHeight || 4/3;
-  const w = window.innerWidth, h = window.innerHeight;
-  view.width  = Math.round(r >= w/h ? w : h*r);
+  const w = view.clientWidth || window.innerWidth, h = view.clientHeight || window.innerHeight;
+  view.width = Math.round(r >= w/h ? w : h*r);
   view.height = Math.round(r >= w/h ? w/r : h);
 }
 window.addEventListener('resize', resize);
@@ -77,44 +236,38 @@ async function sendFrame(blob){
   try{
     const r = await fetch('/detect', {method:'POST', body:blob});
     const d = await r.json();
-    serverMs = d.ms; inferW = d.w || inferW; inferH = d.h || inferH;
-    rtt = performance.now() - sendT;
-    updateTargets(d.boxes || []);
-    document.getElementById('model').textContent = d.model || '-';
-    // 自适应帧率：往返快就多发几帧（更跟手），慢就自动降（不卡）
-    if(rtt < 90)      UPLOAD_FPS = Math.min(25, UPLOAD_FPS + 1);
-    else if(rtt > 220) UPLOAD_FPS = Math.max(4, UPLOAD_FPS - 1);
-  }catch(e){
-    rtt = performance.now() - sendT;
-  }
-  inFlight = false;
+    serverMs=d.ms; inferW=d.w||inferW; inferH=d.h||inferH; rtt=performance.now()-sendT;
+    updateTargets(d.boxes||[]);
+    if(d.model) $('model').textContent=d.model;
+    if(autoFps){
+      if(rtt<90) P.upload_fps=Math.min(30, P.upload_fps+1);
+      else if(rtt>220) P.upload_fps=Math.max(3, P.upload_fps-1);
+      $('uf').value=P.upload_fps; showVals();
+    }
+  }catch(e){ rtt=performance.now()-sendT; }
+  inFlight=false;
 }
 
-// 把新检测结果与已有轨迹按 IoU 匹配 -> 只更新目标位置，绘制时平滑逼近
 function updateTargets(boxes){
-  const sx = view.width/inferW, sy = view.height/inferH;
-  const now = performance.now();
-  const inc = boxes.map(b=>({
-    box:[b.x1*sx,b.y1*sy,b.x2*sx,b.y2*sy], cls:b.cls, cid:(b.cid|0), conf:b.conf
-  }));
+  const sx=view.width/inferW, sy=view.height/inferH, now=performance.now();
+  const inc = boxes.map(b=>({box:[b.x1*sx,b.y1*sy,b.x2*sx,b.y2*sy], cls:b.cls, cid:(b.cid|0), conf:b.conf}));
   const used = new Array(inc.length).fill(false);
   for(const t of tracks){
     let best=0, bi=-1;
     for(let i=0;i<inc.length;i++){
       if(used[i]) continue;
-      const v = iou(t.box, inc[i].box);
+      const v=iou(t.box, inc[i].box);
       if(v>best){best=v;bi=i;}
     }
     if(bi>=0 && best>0.2){
       used[bi]=true;
-      t.target=[...inc[bi].box]; t.cls=inc[bi].cls; t.cid=inc[bi].cid;
-      t.conf=inc[bi].conf; t.seen=now;
+      t.target=[...inc[bi].box]; t.cls=inc[bi].cls; t.cid=inc[bi].cid; t.conf=inc[bi].conf; t.seen=now;
     }
   }
   for(let i=0;i<inc.length;i++){
     if(used[i]) continue;
-    tracks.push({box:[...inc[i].box], target:[...inc[i].box],
-                 cls:inc[i].cls, cid:inc[i].cid, conf:inc[i].conf, seen:now, born:now});
+    tracks.push({box:[...inc[i].box], target:[...inc[i].box], cls:inc[i].cls, cid:inc[i].cid,
+                 conf:inc[i].conf, seen:now});
   }
 }
 
@@ -122,73 +275,59 @@ function draw(){
   requestAnimationFrame(draw);
   if(!video.videoWidth) return;
   ctx.drawImage(video, 0, 0, view.width, view.height);
-  const now = performance.now();
-  tracks = tracks.filter(t=> now - t.seen < COAST_MS);
+  const now=performance.now();
+  tracks = tracks.filter(t=> now-t.seen < Math.max(50,P.coast_ms));
   for(const t of tracks){
-    for(let k=0;k<4;k++) t.box[k] += (t.target[k]-t.box[k]) * SMOOTH;   // 平滑跟随
-    const fading = Math.max(0, 1-(now-t.seen)/COAST_MS);
-    const [x1,y1,x2,y2] = t.box;
-    const c = COLORS[(t.cid|0) % COLORS.length];
-    ctx.globalAlpha = 0.35 + 0.65*fading;
-    ctx.lineWidth = Math.max(3, view.width/220);
-    ctx.strokeStyle = c;
+    for(let k=0;k<4;k++) t.box[k] += (t.target[k]-t.box[k]) * P.smooth;
+    const fading = Math.max(0, 1-(now-t.seen)/Math.max(50,P.coast_ms));
+    const [x1,y1,x2,y2]=t.box, c=COLORS[(t.cid|0)%COLORS.length];
+    ctx.globalAlpha=0.35+0.65*fading;
+    ctx.lineWidth=Math.max(3, view.width/220); ctx.strokeStyle=c;
     ctx.strokeRect(x1,y1,x2-x1,y2-y1);
-    const label = `${t.cls} ${(t.conf*100).toFixed(0)}%`;
-    ctx.font = `${Math.max(15, view.width/40)}px system-ui`;
-    const tw = ctx.measureText(label).width + 12;
-    ctx.fillStyle = c;
-    ctx.fillRect(x1, Math.max(0,y1-24), tw, 24);
-    ctx.fillStyle = '#000';
-    ctx.fillText(label, x1+6, Math.max(17,y1-6));
-    ctx.globalAlpha = 1;
+    const label=`${t.cls} ${(t.conf*100).toFixed(0)}%`;
+    ctx.font=`${Math.max(14, view.width/42)}px system-ui`;
+    const tw=ctx.measureText(label).width+12;
+    ctx.fillStyle=c; ctx.fillRect(x1, Math.max(0,y1-23), tw, 23);
+    ctx.fillStyle='#000'; ctx.fillText(label, x1+6, Math.max(16,y1-6));
+    ctx.globalAlpha=1;
   }
-  document.getElementById('ms').textContent = serverMs.toFixed(0);
-  document.getElementById('upfps').textContent = upFps.toFixed(0);
-  document.getElementById('rtt').textContent = rtt.toFixed(0);
-  const cnt = {};
-  for(const t of tracks){ if(now-t.seen<300) cnt[t.cls]=(cnt[t.cls]||0)+1; }
-  const txt = Object.entries(cnt).map(([k,v])=>`${k}×${v}`).join('　');
-  document.getElementById('det').textContent = txt ? ('识别到：'+txt) : '识别到：无';
+  $('ms').textContent=serverMs.toFixed(0);
+  $('upfps').textContent=upFps.toFixed(0);
+  $('rtt').textContent=rtt.toFixed(0);
+  const cnt={};
+  for(const t of tracks){ if(now-t.seen<400) cnt[t.cls]=(cnt[t.cls]||0)+1; }
+  const txt=Object.entries(cnt).map(([k,v])=>`${k}×${v}`).join('　');
+  $('det').textContent = txt ? ('识别到：'+txt) : '识别到：无';
 }
 
 function sendLoop(){
   if(!running) return;
   if(!inFlight && video.videoWidth){
-    const h = Math.round(UPLOAD_W * video.videoHeight / video.videoWidth);
-    if(work.width!==UPLOAD_W || work.height!==h){ work.width=UPLOAD_W; work.height=h; }
-    wctx.drawImage(video, 0, 0, UPLOAD_W, h);
-    work.toBlob(b=>{
-      if(b && !inFlight){
-        inFlight = true; upCnt++;
-        sendFrame(b);
-      }
-    }, 'image/jpeg', JPEG_Q);
+    const W=Math.round(P.upload_w);
+    const h=Math.round(W*video.videoHeight/video.videoWidth);
+    if(work.width!==W || work.height!==h){ work.width=W; work.height=h; }
+    wctx.drawImage(video,0,0,W,h);
+    work.toBlob(b=>{ if(b && !inFlight){ inFlight=true; upCnt++; sendFrame(b); } },
+                'image/jpeg', 0.6);
   }
-  setTimeout(sendLoop, 1000/Math.max(1,UPLOAD_FPS));
+  setTimeout(sendLoop, 1000/Math.max(1,P.upload_fps));
 }
 
 async function start(){
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio:false});
-    video.srcObject = stream;
-    await video.play();
-    resize();
-    document.getElementById('start').style.display='none';
-    running = true;
+    const s = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+    video.srcObject=s; await video.play();
+    resize(); $('start').style.display='none'; running=true;
     sendLoop(); draw();
-    setInterval(()=>{ upFps = upCnt; upCnt = 0; }, 1000);
+    setInterval(()=>{ upFps=upCnt; upCnt=0; },1000);
   }catch(e){
-    document.getElementById('tips').textContent = '开摄像头失败：'+e.name+' — '+
-      (location.protocol!=='https:' ? '必须用 https:// 打开（手机浏览器要求）' : '请允许摄像头权限');
+    $('tips').textContent='开摄像头失败：'+e.name+' — '+
+      (location.protocol!=='https:'?'必须用 https:// 打开（手机浏览器要求）':'请允许摄像头权限');
   }
 }
-document.getElementById('go').onclick = start;
-// 电脑上打开时，直接显示二维码即可（不自动开摄像头）
-if(location.protocol!=='https:'){
-  document.getElementById('tips').innerHTML =
-    '提示：手机请用 <b>https://</b> 打开本页（扫码最省事）。电脑上直接用 http 打开可以看到二维码。';
-}
+$('go').onclick=start;
+loadParams();
 </script>
 </body>
 </html>
