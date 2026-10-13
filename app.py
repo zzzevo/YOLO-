@@ -258,6 +258,62 @@ def do_predict(img_path, conf, iou, model_path):
     return cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), msg
 
 
+# ---------------------------------------------------------------- 手机/电脑摄像头实时识别
+
+_PT = None
+_PT_PATH = None
+
+
+def live_detect(frame, conf, iou, model_path):
+    """流式摄像头的每一帧：立刻推理并返回画好框的画面（手机端当实时预览用）。
+
+    性能：.pt 用 PyTorch(GPU) 最快（约 5~10ms/帧）；.onnx 走 CPU（约 30~60ms/帧）。
+    """
+    if frame is None:
+        return None, "（等待摄像头画面…）"
+    if not model_path or not Path(model_path).exists():
+        return frame, f"❌ 找不到模型: {model_path}"
+    img = np.ascontiguousarray(frame[:, :, ::-1])          # RGB -> BGR
+    global _PT, _PT_PATH, _DET, _DET_PATH
+
+    if str(model_path).lower().endswith(".pt"):
+        from ultralytics import YOLO
+        if _PT is None or _PT_PATH != str(model_path):
+            _PT = YOLO(str(model_path))
+            _PT_PATH = str(model_path)
+        t0 = time.time()
+        r = _PT.predict(img, conf=float(conf), iou=float(iou), imgsz=640,
+                        device=0, verbose=False)[0]
+        vis = r.plot()
+        dt = (time.time() - t0) * 1000
+        cnt = {}
+        for b in r.boxes:
+            nm = r.names[int(b.cls[0])]
+            cnt[nm] = cnt.get(nm, 0) + 1
+        msg = (f"模型 {Path(model_path).name} (PyTorch/GPU) | {dt:.0f} ms/帧 "
+               f"≈ {1000/max(dt,1):.0f} FPS\n本帧: " +
+               ("、".join(f"{k}×{v}" for k, v in cnt.items()) if cnt else "无目标"))
+        return cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), msg
+
+    from infer_onnx import Detector, draw, CLASS_NAMES
+    if _DET is None or _DET_PATH != str(model_path):
+        _DET = Detector(str(model_path), 640, float(conf), float(iou))
+        _DET_PATH = str(model_path)
+    _DET.conf, _DET.iou = float(conf), float(iou)
+    t0 = time.time()
+    dets, _ = _DET(img)
+    dt = (time.time() - t0) * 1000
+    vis = draw(img.copy(), dets)
+    cnt = {}
+    for d in dets:
+        nm = CLASS_NAMES[d["cls"]] if d["cls"] < len(CLASS_NAMES) else str(d["cls"])
+        cnt[nm] = cnt.get(nm, 0) + 1
+    msg = (f"模型 {Path(model_path).name} (ONNX/CPU) | {dt:.0f} ms/帧 "
+           f"≈ {1000/max(dt,1):.0f} FPS\n本帧: " +
+           ("、".join(f"{k}×{v}" for k, v in cnt.items()) if cnt else "无目标"))
+    return cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), msg
+
+
 # ---------------------------------------------------------------- 界面
 
 with gr.Blocks(title="YOLO26 工作台") as demo:
@@ -311,6 +367,11 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         btn3.click(do_label, [src2, dst3, backend, conf2, prompt, valr, cls_mode], [log2, out2])
 
     with gr.Tab("③ 训练"):
+        gr.Markdown("**这一页默认就是「在已有模型基础上继续训练」，不是从零开始。**\n"
+                    "- **继续训练（推荐）**：起始权重填上一版的 `best.pt`（例如 `runs/ball_v11/weights/best.pt`），**lr0 必须调小到 0.001**，否则会把已经学到的冲掉；本次训练名换一个新的（例如 ball_v12）。\n"
+                    "- **从零开始**：起始权重填官方预训练 `yolo26n.pt`，lr0 用 0.01，并且数据集里要放**全部**数据。\n"
+                    "- 拿不准就用继续训练：数据量没到几万张时，继练永远比从零划算。\n"
+                    "- 练完导出 ONNX：`python train.py --export-only runs/ball_v12/weights/best.pt`")
         _busy0, _who0 = training_in_progress()
         with gr.Row():
             with gr.Column():
@@ -341,20 +402,37 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         btn4.click(start_train, [data3, model3, epochs, batch, imgsz, name3, single, extra, lr0],
                    [tip, logpath, btn4]).then(poll_train, [logpath, tip], [log3, tip, btn4])
 
-    with gr.Tab("④ 推理验证"):
+    with gr.Tab("④ 推理验证 / 手机实时测试"):
         gr.Markdown("拿**没参与训练的实拍图**来验。训练完先用 `train.py --export-only` 导出 ONNX，"
-                    "再把下面的模型路径指过去就能对比新旧模型。")
+                    "再把下面的模型路径指过去就能对比新旧模型。\n\n"
+                    "### 📱 用手机摄像头实时看效果\n"
+                    "1. 双击 `手机实时测试.bat`（会开 HTTPS——**手机浏览器必须 HTTPS 才允许开摄像头**）\n"
+                    "2. 手机连**同一个 Wi-Fi**，浏览器打开启动时打印的那个 `https://192.168.x.x:7860` 地址\n"
+                    "3. 证书警告点「继续访问 / 高级 → 继续」\n"
+                    "4. 下面的**摄像头**框点一下 → 允许摄像头 → 就开始实时框了（推理在本机 GPU 上跑）\n\n"
+                    "> 想更快就把模型路径换成 `.pt`（走 GPU，约 5~10ms/帧）；`.onnx` 走 CPU（约 30~60ms/帧）。")
         with gr.Row():
-            inp = gr.Image(label="上传图片", type="filepath")
+            with gr.Column():
+                gr.Markdown("**① 上传图片检测**")
+                inp = gr.Image(label="上传图片", type="filepath")
+                btn5 = gr.Button("检测", variant="primary")
+            with gr.Column():
+                gr.Markdown("**② 手机/电脑摄像头实时**")
+                cam = gr.Image(label="摄像头（点这里开摄像头）", sources=["webcam"],
+                               streaming=True, type="numpy", height=280)
+                live_msg = gr.Textbox(label="实时状态", lines=3)
             with gr.Column():
                 model4 = gr.Textbox(label="模型（.onnx 或 .pt）", value=str(ROOT / "runs" / "ball_v11" / "weights" / "best.onnx"),
-                                    info="也可填 best.onnx(原始) / runs\\ball_v3\\weights\\best.pt / ball_v1")
+                                    info="换成 .pt 走 GPU 更快：runs\\ball_v11\\weights\\best.pt")
                 conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
                 iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
-                btn5 = gr.Button("检测", variant="primary")
-                msg4 = gr.Textbox(label="结果", lines=8)
+                every = gr.Slider(0.05, 1.0, value=0.2, step=0.05, label="实时刷新间隔(秒)",
+                                  info="越小越流畅越吃 CPU")
+                msg4 = gr.Textbox(label="检测结果", lines=8)
         out4 = gr.Image(label="检测结果")
         btn5.click(do_predict, [inp, conf4, iou4, model4], [out4, msg4])
+        cam.stream(live_detect, [cam, conf4, iou4, model4], [out4, live_msg],
+                   stream_every=0.2, time_limit=None, concurrency_limit=1)
 
     gr.Markdown("---\n**典型流程**：①抽帧/搜图 → ②自动标注 → 用 X-AnyLabeling 人工校对 → ③训练 → ④推理验证 → "
                 "`python train.py --export-only <best.pt>` 导出 ONNX")
@@ -362,14 +440,91 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
 
 if __name__ == "__main__":
     import argparse
+    import subprocess
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=7860)
-    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--host", default="127.0.0.1", help="0.0.0.0 = 局域网/手机也能访问")
     ap.add_argument("--browser", action="store_true",
                     help="服务就绪后自动打开浏览器（双击 bat 启动时用）")
+    ap.add_argument("--ssl", action="store_true",
+                    help="用 HTTPS 启动（**手机浏览器开摄像头必须 HTTPS**），首次会自动生成自签证书")
+    ap.add_argument("--lan", action="store_true", help="等同 --host 0.0.0.0 --ssl（手机测试一条龙）")
     a = ap.parse_args()
-    print(f"\n>>> 工作台地址: http://{a.host}:{a.port}/")
+    if a.lan:
+        a.host, a.ssl = "0.0.0.0", True
+
+    def lan_ip():
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        except Exception:
+            return "127.0.0.1"
+        finally:
+            s.close()
+
+    ssl_kw = {}
+    if a.ssl:
+        certdir = ROOT / "certs"
+        certdir.mkdir(exist_ok=True)
+        key, crt = certdir / "key.pem", certdir / "cert.pem"
+        if not (key.exists() and crt.exists()):
+            ip = lan_ip()
+            print(f">>> 首次生成自签证书（含 IP {ip} 与 localhost）…")
+            # 优先用 Python 的 cryptography；没有就用 openssl
+            made = False
+            try:
+                import datetime
+                from cryptography import x509
+                from cryptography.hazmat.primitives import hashes, serialization
+                from cryptography.hazmat.primitives.asymmetric import rsa
+                from cryptography.x509.oid import NameOID
+                k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, ip)])
+                san = x509.SubjectAlternativeName([x509.DNSName("localhost"),
+                                                   x509.IPAddress(__import__("ipaddress").ip_address(ip)),
+                                                   x509.IPAddress(__import__("ipaddress").ip_address("127.0.0.1"))])
+                now = datetime.datetime.utcnow()
+                cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+                        .public_key(k.public_key()).serial_number(x509.random_serial_number())
+                        .not_valid_before(now - datetime.timedelta(days=1))
+                        .not_valid_after(now + datetime.timedelta(days=3650))
+                        .add_extension(san, critical=False)
+                        .sign(k, hashes.SHA256()))
+                key.write_bytes(k.private_bytes(serialization.Encoding.PEM,
+                                                serialization.PrivateFormat.TraditionalOpenSSL,
+                                                serialization.NoEncryption()))
+                crt.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+                made = True
+            except Exception as e:
+                print(f"    cryptography 不可用({type(e).__name__})，改用 openssl")
+            if not made:
+                import glob as _glob
+                import shutil
+                ossl = shutil.which("openssl") or r"D:\Anconda\Library\bin\openssl.EXE"
+                # 有些环境下系统 OPENSSL_CONF 指向不存在的路径，必须显式 -config
+                cnf = next((p for p in _glob.glob(r"D:\Anconda\Library\ssl\openssl.cnf")
+                            + _glob.glob(r"D:\Anconda\pkgs\openssl-*\Library\ssl\openssl.cnf")
+                            + _glob.glob("/usr/lib/ssl/openssl.cnf")), None)
+                cmd = [ossl, "req", "-x509", "-newkey", "rsa:2048", "-nodes"]
+                if cnf:
+                    cmd += ["-config", cnf]
+                cmd += ["-keyout", str(key), "-out", str(crt), "-days", "3650",
+                        "-subj", f"/CN={lan_ip()}",
+                        "-addext", f"subjectAltName=DNS:localhost,IP:{lan_ip()},IP:127.0.0.1"]
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                if r.returncode != 0 or not crt.exists():
+                    print("    openssl 失败:", (r.stderr or "")[-300:])
+                    raise SystemExit("证书生成失败，无法启用 HTTPS")
+        ssl_kw = {"ssl_keyfile": str(key), "ssl_certfile": str(crt), "ssl_verify": False}
+        print(f"\n>>> 手机访问（同一 Wi-Fi）: https://{lan_ip()}:{a.port}/")
+        print(">>> 浏览器会提示证书不安全 —— 点「高级 / 继续访问」即可（自签证书正常现象）")
+        print(">>> 打开后点摄像头框 → 允许 → 开始实时识别\n")
+    print(f"\n>>> 工作台地址: http://{'127.0.0.1' if a.host == '0.0.0.0' else a.host}:{a.port}/")
+    if a.host == "0.0.0.0":
+        print(f">>> 局域网地址: http://{lan_ip()}:{a.port}/  （手机直接输这个也能用，但摄像头需要 HTTPS）")
     print(">>> 关闭本窗口 = 停止服务\n")
     # Gradio 6: theme 等移到 launch()；不再支持 show_api
     demo.launch(server_name=a.host, server_port=a.port, inbrowser=a.browser,
-                theme=gr.themes.Soft(), show_error=True)
+                theme=gr.themes.Soft(), show_error=True, **ssl_kw)

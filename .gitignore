@@ -54,6 +54,9 @@ pillar_far_labels/
 raw_pillar_far/
 dataset_ball_v10/
 dataset_ball_v11/
+raw_good_test/
+raw_good*/
+certs/
 _far_val_only/
 
 dataset_ball_v4/

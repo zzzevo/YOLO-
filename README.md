@@ -903,3 +903,62 @@ Get-ChildItem dataset_ball_v11 -Recurse -Filter *.cache | Remove-Item -Force
 | `audit_labels_clip.py` | **CLIP 全量复核标签**，可 `--fix` 直接改错标（自动备份）|
 | `confusion_check.py` | **类间混淆专项**：真值→预测计数 + 判错帧出图 |
 | `class_order_recheck.jpg` / `audit_clip.jpg` / `confusion_v11_ball_B.jpg` | 本轮证据图 |
+
+
+---
+
+## 十六、手机实时测试 + 爬图工具升级（2026-10-13）
+
+### 手机摄像头实时看效果
+
+手机浏览器**只允许 HTTPS 页面开摄像头**（http:// 下摄像头全黑），所以：
+
+```powershell
+# 一条命令：局域网监听 + HTTPS（首次自动生成自签证书到 certs/）
+python app.py --lan              # 等价于 --host 0.0.0.0 --ssl
+```
+
+启动后打印 `https://<你的局域网IP>:7860/`，手机连**同一个 Wi-Fi**打开，
+证书警告点「高级→继续访问」，然后在「④ 推理验证 / 手机实时测试」页点摄像头框即可。
+
+- **推理在电脑上跑**，手机只当摄像头+显示器 → 适合快速验收
+- `.pt` 走 **PyTorch/GPU**（约 5~10ms/帧，推荐实时用）；`.onnx` 走 CPU（30~60ms/帧）
+- 页面有"实时刷新间隔"滑条；详见 [手机实时测试.md](手机实时测试.md)
+
+> 自签证书在 `certs/`（已 gitignore，**私钥绝不能入库**）。
+> 冒烟验证：`https://127.0.0.1:7868/` 与 `https://10.21.153.134:7868/` 均返回 200、
+> 页面含摄像头组件、TLS 1.3 握手成功。
+
+### 训练页说明也写进界面了
+
+「③ 训练」页顶部现在直接写明：**这一页默认就是"在已有模型基础上继续训练"，不是从零开始**，
+并给出"继续训练（lr0=0.001）vs 从零开始（yolo26n.pt + lr0=0.01）"的区别。
+
+### 爬图工具升级：留用率 16% → 39%
+
+原来的问题：Bing 普通图片搜索会把**海报、logo、文字图、地图、卡通**都算相关，
+而且旧流程是"先全下下来、事后再筛"，所以 `raw_web_*` 里一堆垃圾。
+
+`fetch_train_images.py` 的改进：
+1. `qft=+filterui:photo-photo` —— 搜索层就只要**照片**，挡掉 clipart/logo/插画/地图
+2. **边下边验**：YOLO 检出球 → 裁框给 CLIP 语义复核 → 两个都过才落盘（直接产出图片+标签）
+3. 内容级去重（平均哈希）、**按关键词统计产出率**，方便删掉没用的词
+
+实测（4 个关键词、129 个候选）：
+
+| 关键词 | 候选 | 留用 | 产出率 |
+|---|---|---|---|
+| 篮球 商品图 | 35 | 24 | **69%** |
+| volleyball product photo | 34 | 14 | 41% |
+| basketball isolated white background | 35 | 12 | 34% |
+| 排球 商品图 | 25 | 0 | **0%（该删）** |
+| **合计** | **129** | **50** | **39%**（旧流程 ~16%）|
+
+```powershell
+python fetch_train_images.py --dst raw_good --per-query 40 --clip-thr 0.9 --conf 0.5 `
+    --queries "篮球 商品图" "basketball isolated white background" "volleyball product photo"
+# 产出 raw_good/images + raw_good/labels，可直接并入数据集：
+python add_labeled_frames.py --images raw_good/images --labels raw_good/labels `
+    --base dataset_ball_v11 --dst dataset_ball_v12 --val-ratio 0.15 `
+    --names "篮球,排球,定位柱" --prefix web_
+```
