@@ -397,6 +397,40 @@ def lan_ip():
         s.close()
 
 
+def _early_args():
+    """在构建界面前就拿到端口/SSL，这样二维码里的地址才是对的。"""
+    import argparse
+    ap = argparse.ArgumentParser(add_help=False)
+    ap.add_argument("--port", type=int, default=7860)
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--browser", action="store_true")
+    ap.add_argument("--ssl", action="store_true")
+    ap.add_argument("--lan", action="store_true")
+    a, _ = ap.parse_known_args()
+    if a.lan:
+        a.host, a.ssl = "0.0.0.0", True
+    return a
+
+
+ARGS = _early_args()
+PHONE_URL = f"https://{lan_ip()}:{ARGS.port}" if ARGS.ssl else f"http://{lan_ip()}:{ARGS.port}"
+
+# 手机访问地址也写到文件里，方便随时查看（IP 会随 Wi-Fi 变，重启本程序即刷新）
+try:
+    (ROOT / "手机访问地址.txt").write_text(
+        f"{PHONE_URL}\n（用手机浏览器打开；不要在微信里打开）\n页面顶部也会显示这个地址和二维码。\n", encoding="utf-8")
+except Exception:
+    pass
+
+# 二维码：电脑上打开页面 -> 手机扫一下，不用手输 IP
+QR_PATH = LOGS / "phone_qr.png"
+try:
+    import qrcode
+    qrcode.make(PHONE_URL).save(QR_PATH)
+except Exception:
+    QR_PATH = None
+
+
 def live_detect(frame, conf, iou, model_path, mirror_out=True):
     """流式摄像头每帧回调"""
     return _safe_live(frame, conf, iou, model_path, mirror_out)
@@ -458,7 +492,16 @@ def _live_core(frame, conf, iou, model_path, mirror_out, log=True):
 
 # ---------------------------------------------------------------- 界面
 
-with gr.Blocks(css=CUSTOM_CSS, title="YOLO26 工作台") as demo:
+with gr.Blocks(title="YOLO26 工作台") as demo:
+    with gr.Row():
+        with gr.Column(scale=3):
+            gr.Markdown(f"<div id='buildstamp'>版本 {BUILD_STAMP}</div>"
+                        f"### 📱 手机扫这个码，或手动输入 `{PHONE_URL}`"
+                        f"\n⚠️ 电脑和手机必须连**同一个** Wi-Fi/热点；换网络后地址会变，"
+                        f"重启本程序并刷新页面即可")
+        with gr.Column(scale=1):
+            if QR_PATH is not None:
+                gr.Image(value=str(QR_PATH), label="扫码打开", height=170, container=False)
     gr.Markdown(f"<div id='buildstamp'>版本 {BUILD_STAMP} ｜ 手机访问：https://{lan_ip()}:7870</div>")
     gr.Markdown("# 🎯 YOLO26 工作台\n"
                 "采集 → 自动标注 → 人工校对 → 训练 → 推理，全程图形界面。\n\n"
@@ -610,10 +653,7 @@ if __name__ == "__main__":
     ap.add_argument("--ssl", action="store_true",
                     help="用 HTTPS 启动（**手机浏览器开摄像头必须 HTTPS**），首次会自动生成自签证书")
     ap.add_argument("--lan", action="store_true", help="等同 --host 0.0.0.0 --ssl（手机测试一条龙）")
-    a = ap.parse_args()
-    if a.lan:
-        a.host, a.ssl = "0.0.0.0", True
-
+    a = ARGS
     ssl_kw = {}
     if a.ssl:
         certdir = ROOT / "certs"
@@ -677,4 +717,4 @@ if __name__ == "__main__":
     print(">>> 关闭本窗口 = 停止服务\n")
     # Gradio 6: theme 等移到 launch()；不再支持 show_api
     demo.launch(server_name=a.host, server_port=a.port, inbrowser=a.browser,
-                theme=gr.themes.Soft(), show_error=True, **ssl_kw)
+                theme=gr.themes.Soft(), show_error=True, css=CUSTOM_CSS, **ssl_kw)
