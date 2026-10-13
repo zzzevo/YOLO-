@@ -1,0 +1,8 @@
+# v11(CLIP修正过标签) 的 video11 验证集
+path: D:/18024/Documents/ARM/yolo26_robocup/dataset_ball_v11
+train: val_video11.txt
+val: val_video11.txt
+names:
+  0: 篮球
+  1: 排球
+  2: 定位柱
