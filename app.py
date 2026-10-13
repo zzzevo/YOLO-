@@ -35,6 +35,23 @@ CUSTOM_CSS = """
 #buildstamp { font-size: 12px; color: #888; }
 """
 
+# CSS 在部分前端版本作用不到摄像头预览元素，这里再用 JS 直接翻。
+# 改的是同一个 transform 属性，所以即使 CSS 也生效也只是单次翻转，不会叠加。
+MIRROR_JS = """
+() => {
+  const flip = () => {
+    document.querySelectorAll('.mirror-cam video, .mirror-cam canvas, .mirror-cam img, video').forEach(e => {
+      e.style.transform = 'scaleX(-1)';
+      e.style.webkitTransform = 'scaleX(-1)';
+      e.style.objectFit = e.style.objectFit || '';
+    });
+  };
+  flip();
+  if (!window.__mirrorTimer) window.__mirrorTimer = setInterval(flip, 700);
+  return [];
+}
+"""
+
 BUILD_STAMP = "build " + __import__("time").strftime("%Y-%m-%d %H:%M")
 
 ROOT = Path(__file__).parent.resolve()
@@ -640,6 +657,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
 
     gr.Markdown("---\n**典型流程**：①抽帧/搜图 → ②自动标注 → 用 X-AnyLabeling 人工校对 → ③训练 → ④推理验证 → "
                 "`python train.py --export-only <best.pt>` 导出 ONNX")
+    demo.load(None, None, None, js=MIRROR_JS)   # 页面加载后持续翻转预览（镜像）
 
 
 if __name__ == "__main__":
