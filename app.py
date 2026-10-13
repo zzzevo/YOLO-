@@ -262,9 +262,51 @@ def do_predict(img_path, conf, iou, model_path):
 
 _PT = None
 _PT_PATH = None
+_n = [0]          # 实时帧计数（界面上显示，用来判断服务端有没有收到画面）
 
 
-def live_detect(frame, conf, iou, model_path):
+LIVELOG = LOGS / "live.log"
+
+
+def _loglive(text):
+    try:
+        with open(LIVELOG, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+    except Exception:
+        pass
+
+
+def grab_once(frame, conf, iou, model_path, mirror_out=True):
+    """手动抓当前摄像头画面检测一次——流式万一不工作时用这个。"""
+    if frame is None:
+        return None, "还没有摄像头画面，先点一下摄像头框、允许摄像头"
+    try:
+        if frame.ndim == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+        elif frame.shape[2] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+        _loglive(f"grab_once shape={frame.shape}")
+        return _live_core(frame, conf, iou, model_path, bool(mirror_out))
+    except Exception as e:
+        import traceback
+        _loglive("ERROR grab_once " + traceback.format_exc()[-500:])
+        return frame, f"❌ 出错: {type(e).__name__}: {e}"
+
+
+def lan_ip():
+    """本机在局域网里的 IPv4（手机要用它访问；换了 Wi-Fi 这个就变）"""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def live_detect(frame, conf, iou, model_path, mirror_out=True):
     """流式摄像头的每一帧：立刻推理并返回画好框的画面（手机端当实时预览用）。
 
     性能：.pt 用 PyTorch(GPU) 最快（约 5~10ms/帧）；.onnx 走 CPU（约 30~60ms/帧）。
@@ -273,6 +315,22 @@ def live_detect(frame, conf, iou, model_path):
         return None, "（等待摄像头画面…）"
     if not model_path or not Path(model_path).exists():
         return frame, f"❌ 找不到模型: {model_path}"
+    try:
+        # 摄像头有时给 RGBA/灰度，统一成 3 通道 BGR
+        if frame.ndim == 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+        elif frame.shape[2] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+        return _live_core(frame, conf, iou, model_path, bool(mirror_out))
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        _loglive(f"ERROR frame#{_n[0]} shape={getattr(frame, 'shape', None)} {type(e).__name__}: {e}")
+        _loglive(tb[-600:])
+        return frame if frame.ndim == 3 else None, f"❌ 服务端出错（已记到 gui_logs/live.log）\n{type(e).__name__}: {e}"
+
+
+def _live_core(frame, conf, iou, model_path, mirror_out):
     img = np.ascontiguousarray(frame[:, :, ::-1])          # RGB -> BGR
     global _PT, _PT_PATH, _DET, _DET_PATH
 
@@ -291,8 +349,13 @@ def live_detect(frame, conf, iou, model_path):
             nm = r.names[int(b.cls[0])]
             cnt[nm] = cnt.get(nm, 0) + 1
         msg = (f"模型 {Path(model_path).name} (PyTorch/GPU) | {dt:.0f} ms/帧 "
-               f"≈ {1000/max(dt,1):.0f} FPS\n本帧: " +
+               f"≈ {1000/max(dt,1):.0f} FPS | 本帧: " +
                ("、".join(f"{k}×{v}" for k, v in cnt.items()) if cnt else "无目标"))
+        _n[0] += 1
+        _loglive(f"frame#{_n[0]} {img.shape} GPU {dt:.0f}ms det={len(r.boxes)} conf={conf}")
+        msg = f"已收到 {_n[0]} 帧\n" + msg
+        if mirror_out:
+            vis = cv2.flip(vis, 1)
         return cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), msg
 
     from infer_onnx import Detector, draw, CLASS_NAMES
@@ -309,8 +372,13 @@ def live_detect(frame, conf, iou, model_path):
         nm = CLASS_NAMES[d["cls"]] if d["cls"] < len(CLASS_NAMES) else str(d["cls"])
         cnt[nm] = cnt.get(nm, 0) + 1
     msg = (f"模型 {Path(model_path).name} (ONNX/CPU) | {dt:.0f} ms/帧 "
-           f"≈ {1000/max(dt,1):.0f} FPS\n本帧: " +
+           f"≈ {1000/max(dt,1):.0f} FPS | 本帧: " +
            ("、".join(f"{k}×{v}" for k, v in cnt.items()) if cnt else "无目标"))
+    _n[0] += 1
+    _loglive(f"frame#{_n[0]} {img.shape} CPU {dt:.0f}ms det={len(dets)} conf={conf}")
+    msg = f"已收到 {_n[0]} 帧\n" + msg
+    if mirror_out:
+        vis = cv2.flip(vis, 1)
     return cv2.cvtColor(vis, cv2.COLOR_BGR2RGB), msg
 
 
@@ -403,35 +471,45 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
                    [tip, logpath, btn4]).then(poll_train, [logpath, tip], [log3, tip, btn4])
 
     with gr.Tab("④ 推理验证 / 手机实时测试"):
-        gr.Markdown("拿**没参与训练的实拍图**来验。训练完先用 `train.py --export-only` 导出 ONNX，"
-                    "再把下面的模型路径指过去就能对比新旧模型。\n\n"
-                    "### 📱 用手机摄像头实时看效果\n"
-                    "1. 双击 `手机实时测试.bat`（会开 HTTPS——**手机浏览器必须 HTTPS 才允许开摄像头**）\n"
-                    "2. 手机连**同一个 Wi-Fi**，浏览器打开启动时打印的那个 `https://192.168.x.x:7860` 地址\n"
-                    "3. 证书警告点「继续访问 / 高级 → 继续」\n"
-                    "4. 下面的**摄像头**框点一下 → 允许摄像头 → 就开始实时框了（推理在本机 GPU 上跑）\n\n"
-                    "> 想更快就把模型路径换成 `.pt`（走 GPU，约 5~10ms/帧）；`.onnx` 走 CPU（约 30~60ms/帧）。")
+        gr.Markdown(f"### 📱 手机实时识别（识别结果和状态都在右边）\\n"
+                    f"**本机当前手机访问地址**：`https://{lan_ip()}:7870`"
+                    f"（用 `手机实时测试.bat` 启动时是 7870；换成别的端口就看启动窗口打印的）\\n"
+                    f"⚠️ **换了 Wi-Fi / 热点，这个 IP 会变**，地址跟着变\\n\\n"
+                    "1. 点左边「摄像头」→ 允许 → 开始出画面\n"
+                    "2. **识别结果 + 实时状态都在右边**（手机窄屏时就在摄像头正下方）\n"
+                    "3. **如果一直没反应**：先点右边的「抓一帧检测」按钮——它一定能出结果，"
+                    "能出说明模型没问题，是流式没连上；再把模型换成 `.pt` 试试\n\n"
+                    "**帧数一直是 0** = 服务端没收到画面（检查是不是用的 `https://` 地址）；"
+                    "**帧数在涨但没框** = 把置信度调到 0.15 试试。")
         with gr.Row():
-            with gr.Column():
-                gr.Markdown("**① 上传图片检测**")
-                inp = gr.Image(label="上传图片", type="filepath")
-                btn5 = gr.Button("检测", variant="primary")
-            with gr.Column():
-                gr.Markdown("**② 手机/电脑摄像头实时**")
-                cam = gr.Image(label="摄像头（点这里开摄像头）", sources=["webcam"],
-                               streaming=True, type="numpy", height=280)
-                live_msg = gr.Textbox(label="实时状态", lines=3)
-            with gr.Column():
-                model4 = gr.Textbox(label="模型（.onnx 或 .pt）", value=str(ROOT / "runs" / "ball_v11" / "weights" / "best.onnx"),
-                                    info="换成 .pt 走 GPU 更快：runs\\ball_v11\\weights\\best.pt")
-                conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
-                iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
-                every = gr.Slider(0.05, 1.0, value=0.2, step=0.05, label="实时刷新间隔(秒)",
-                                  info="越小越流畅越吃 CPU")
-                msg4 = gr.Textbox(label="检测结果", lines=8)
-        out4 = gr.Image(label="检测结果")
-        btn5.click(do_predict, [inp, conf4, iou4, model4], [out4, msg4])
-        cam.stream(live_detect, [cam, conf4, iou4, model4], [out4, live_msg],
+            with gr.Column(scale=1):
+                cam = gr.Image(label="① 摄像头（点这里开）", sources=["webcam"],
+                               streaming=True, type="numpy", height=300,
+                               webcam_options=gr.WebcamOptions(mirror=True))
+            with gr.Column(scale=1):
+                out4 = gr.Image(label="② 识别结果（框画在这里）", height=300)
+                live_msg = gr.Textbox(label="③ 实时状态（帧数在涨=服务端收到了）", lines=3,
+                                      value="等待画面…")
+                grab_btn = gr.Button("抓一帧检测（流式不动时用这个）", variant="secondary")
+        with gr.Accordion("模型与参数", open=False):
+            model4 = gr.Textbox(label="模型（.onnx 或 .pt）",
+                                value=str(ROOT / "runs" / "ball_v11" / "weights" / "best.onnx"),
+                                info="换成 .pt 走 GPU 更快：runs\\ball_v11\\weights\\best.pt")
+            conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
+            iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
+            every = gr.Slider(0.05, 1.0, value=0.2, step=0.05, label="实时刷新间隔(秒)",
+                              info="越小越流畅越吃 CPU")
+            mirror4 = gr.Checkbox(value=True, label="镜像识别结果（和预览保持一致）")
+        with gr.Accordion("上传图片检测（不想用摄像头时）", open=False):
+            with gr.Row():
+                inp = gr.Image(label="上传图片", type="filepath", height=260)
+                with gr.Column():
+                    btn5 = gr.Button("检测这张图", variant="primary")
+                    msg4 = gr.Textbox(label="检测结果", lines=10)
+            out5 = gr.Image(label="检测结果图", height=260)
+        btn5.click(do_predict, [inp, conf4, iou4, model4], [out5, msg4])
+        grab_btn.click(grab_once, [cam, conf4, iou4, model4, mirror4], [out4, live_msg])
+        cam.stream(live_detect, [cam, conf4, iou4, model4, mirror4], [out4, live_msg],
                    stream_every=0.2, time_limit=None, concurrency_limit=1)
 
     gr.Markdown("---\n**典型流程**：①抽帧/搜图 → ②自动标注 → 用 X-AnyLabeling 人工校对 → ③训练 → ④推理验证 → "
@@ -452,17 +530,6 @@ if __name__ == "__main__":
     a = ap.parse_args()
     if a.lan:
         a.host, a.ssl = "0.0.0.0", True
-
-    def lan_ip():
-        import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-        except Exception:
-            return "127.0.0.1"
-        finally:
-            s.close()
 
     ssl_kw = {}
     if a.ssl:
