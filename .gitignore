@@ -65,6 +65,10 @@ raw_web_v8/
 raw_web_v7/
 dataset_synth/
 dataset_ball_v16/
+v17_labels/
+raw_v17/
+dataset_ball_v18/
+dataset_ball_v17/
 dataset_ball_v15/
 dataset_ball_v13/
 dataset_ball_v12/

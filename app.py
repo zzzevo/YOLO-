@@ -550,9 +550,9 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         _busy0, _who0 = training_in_progress()
         with gr.Row():
             with gr.Column():
-                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_v14" / "data.yaml"),
-                                   info="dataset_ball_v14=最新(3类+445张CLIP复核网图) / v11=旧 / dataset_ball_v4=2类")
-                model3 = gr.Textbox(label="起始权重", value="runs/ball_v14/weights/best.pt",
+                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_v18" / "data.yaml"),
+                                   info="dataset_ball_v18=最新(3类+新3段视频+负样本修正) / v14=旧 / dataset_ball_v4=2类")
+                model3 = gr.Textbox(label="起始权重", value="runs/ball_v18/weights/best.pt",
                                     info="接着上次练=最佳 / yolo26n.pt=官方预训练 / best_recovered.pt=原始权重")
                 with gr.Row():
                     epochs = gr.Number(value=80, label="epochs", precision=0)
@@ -560,7 +560,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
                     imgsz = gr.Number(value=640, label="imgsz", precision=0)
                     lr0 = gr.Number(value=0.001, label="lr0 学习率",
                                     info="接着上次练用 0.001；从官方预训练起手用 0.01")
-                name3 = gr.Textbox(label="本次训练名", value="ball_v15")
+                name3 = gr.Textbox(label="本次训练名", value="ball_v19")
                 single = gr.Checkbox(value=False, label="受限/沙箱环境模式（--single-process）")
                 extra = gr.Textbox(label="额外参数（可留空）", value="")
                 btn4 = gr.Button("开始训练", variant="primary", interactive=not _busy0)
@@ -605,9 +605,9 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
                 vid_msg = gr.Textbox(label="视频检测结果", lines=4)
         with gr.Accordion("模型与参数", open=False):
             model4 = gr.Textbox(label="模型（.onnx 或 .pt）",
-                                value=str(ROOT / "runs" / "ball_v14" / "weights" / "best.onnx"),
+                                value=str(ROOT / "runs" / "ball_v18" / "weights" / "best.onnx"),
                                 info="换成 .pt 走 GPU 更快：runs\\ball_v11\\weights\\best.pt")
-            conf4 = gr.Slider(0.05, 0.9, value=0.25, step=0.05, label="置信度")
+            conf4 = gr.Slider(0.05, 0.9, value=0.40, step=0.05, label="置信度", info="0.40 起地板误检约 2%；更怕误检就 0.5，怕漏就 0.3")
             iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
             every = gr.Slider(0.05, 1.0, value=0.2, step=0.05, label="实时刷新间隔(秒)")
         with gr.Accordion("上传图片检测", open=False):

@@ -45,7 +45,7 @@ from infer_onnx import CLASS_NAMES
 
 PARAMS_FILE = ROOT / "live_params.json"
 DEFAULTS = {
-    "conf": 0.30,          # 总置信度门槛（模型内部按低阈值检出，再用下面的细门槛筛）
+    "conf": 0.40,          # 总置信度门槛（模型内部按低阈值检出，再用下面的细门槛筛）
     "iou": 0.45,           # NMS IoU
     "cls_conf": {CLASS_NAMES[0]: 0.35, CLASS_NAMES[1]: 0.35, CLASS_NAMES[2]: 0.25},
     "min_px": 0,           # 框最短边（上传帧像素）低于此值丢弃
@@ -209,7 +209,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=7871)
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--model", default="runs/ball_v14/weights/best.onnx")
+    ap.add_argument("--model", default="runs/ball_v18/weights/best.onnx")
     ap.add_argument("--conf", type=float, default=None, help="覆盖保存的总置信度门槛")
     ap.add_argument("--iou", type=float, default=None)
     ap.add_argument("--no-ssl", action="store_true")
