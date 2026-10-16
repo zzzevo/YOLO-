@@ -50,12 +50,38 @@ DEFAULTS = {
     # 每个类别可以单独设门槛（2 类：篮球 / 排球）
     "cls_conf": {n: 0.40 for n in CLASS_NAMES},
     "min_px": 0,           # 框最短边（上传帧像素）低于此值丢弃
+    # "像不像球"判据：球一定有饱和颜色且色块成团；木地板/白线/阴影不满足 -> 掐掉
+    # （实测：地板误检 23.4% -> 8.5%，真球召回只掉 1.8%）
+    "ball_filter": True,
+    "sat_thr": 0.15,       # 框内饱和色占比下限
+    "fill_thr": 0.45,      # 最大饱和色块的圆形填充率下限
     "upload_w": 640,       # 前端上传帧宽度
     "upload_fps": 12,      # 前端每秒上传上限
     "smooth": 0.45,        # 框跟随平滑
     "coast_ms": 600,       # 丢失后保留
 }
 DET_CONF_FLOOR = 0.05      # 模型固定用低阈值检出，细门槛在下面用参数筛
+
+
+def ball_likeness(img, box):
+    """返回 (框内饱和色占比, 最大饱和色块的圆形填充率)。球高饱和且成团；地板/白线/阴影不满足。"""
+    try:
+        x1, y1, x2, y2 = [int(max(0, v)) for v in box]
+        crop = img[y1:max(y1 + 1, y2), x1:max(x1 + 1, x2)]
+        if crop.size < 200:
+            return 1.0, 1.0                      # 太小不判，交给 min_px
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        sat = ((hsv[:, :, 1] > 80) & (hsv[:, :, 2] > 60)).astype(np.uint8)
+        frac = float(sat.sum()) / sat.size
+        sat = cv2.morphologyEx(sat * 255, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        n, _, stats, _ = cv2.connectedComponentsWithStats(sat, 8)
+        if n <= 1:
+            return frac, 0.0
+        big = 1 + int(np.argmax(stats[1:, 4]))
+        _, _, bw, bh, area = stats[big]
+        return frac, float(area) / (float(bw) * float(bh) + 1e-6)
+    except Exception:
+        return 1.0, 1.0
 
 app = FastAPI(title="YOLO 实时识别")
 STATE = {"det": None, "model": "", "params": dict(DEFAULTS)}
@@ -188,7 +214,7 @@ async def detect(request: Request):
     except Exception as e:
         print("[detect error]", type(e).__name__, e)
         boxes = []
-    # 细筛：总门槛 + 每类门槛 + 最小像素
+    # 细筛：总门槛 + 每类门槛 + 最小像素 + "像不像球"判据
     keep = []
     for b in boxes:
         cname = CLASS_NAMES[b["cid"]] if b["cid"] < len(CLASS_NAMES) else str(b["cid"])
@@ -197,6 +223,11 @@ async def detect(request: Request):
             continue
         if p["min_px"] and min(b["x2"] - b["x1"], b["y2"] - b["y1"]) < p["min_px"]:
             continue
+        # 像不像球：木地板/白线/阴影都是低饱和或形状不成团，直接掐掉（治"地板被框成一大块排球"）
+        if p.get("ball_filter", True):
+            sat, fill = ball_likeness(img, (b["x1"], b["y1"], b["x2"], b["y2"]))
+            if sat < p.get("sat_thr", 0.15) or fill < p.get("fill_thr", 0.45):
+                continue
         # 注意：onnxruntime 给的是 numpy.float32，必须转成 Python 原生类型才能 JSON 序列化
         keep.append({"x1": float(b["x1"]), "y1": float(b["y1"]),
                      "x2": float(b["x2"]), "y2": float(b["y2"]),
@@ -210,7 +241,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=7871)
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--model", default="runs/ball_2c/weights/best.onnx")
+    ap.add_argument("--model", default="runs/ball_2c_v3/weights/best.onnx")
     ap.add_argument("--conf", type=float, default=None, help="覆盖保存的总置信度门槛")
     ap.add_argument("--iou", type=float, default=None)
     ap.add_argument("--no-ssl", action="store_true")

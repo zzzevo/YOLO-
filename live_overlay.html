@@ -93,16 +93,31 @@
       <input type="range" id="c1" min="0.05" max="0.9" step="0.01">
     </div>
     <div class="row">
-      <label class="cls">每类门槛 · 定位柱 <span class="v" id="v_c2">-</span></label>
-      <span></span>
-      <input type="range" id="c2" min="0.05" max="0.9" step="0.01">
-    </div>
-
-    <div class="row">
       <label>最小框（像素） <span class="v" id="v_min">-</span></label>
       <span></span>
       <input type="range" id="minpx" min="0" max="120" step="2">
       <div class="hint">过滤远处小噪点误检（按上传帧像素算）。0 = 不过滤</div>
+    </div>
+
+    <div class="row">
+      <label>"像不像球"过滤 <span class="v" id="v_bf">开</span></label>
+      <span><input type="checkbox" id="bf" checked style="width:22px;height:22px"></span>
+      <div class="hint">专治<b>地板/白线/阴影被框成球</b>：球一定有饱和颜色且色块成团。
+        实测地板误检从 23% 降到 8%，真球召回只掉 1.8%。关掉它可排除"真球被误滤"</div>
+    </div>
+
+    <div class="row">
+      <label>颜色门槛 <span class="v" id="v_sat">-</span></label>
+      <span></span>
+      <input type="range" id="sat" min="0.02" max="0.5" step="0.01">
+      <div class="hint">框内"饱和色"占比下限。调高 = 更严格（更容易滤掉暗淡的框）</div>
+    </div>
+
+    <div class="row">
+      <label>成团门槛 <span class="v" id="v_fill">-</span></label>
+      <span></span>
+      <input type="range" id="fill" min="0.1" max="0.9" step="0.05">
+      <div class="hint">色块"圆整度"下限。调高 = 更严格（只留接近圆的色块）</div>
     </div>
 
     <div class="row">
@@ -150,8 +165,8 @@ const wctx  = work.getContext('2d');
 const $ = id => document.getElementById(id);
 
 // 默认值（会从服务器 /params 覆盖）
-let P = {conf:0.30, iou:0.45, upload_w:640, upload_fps:12, smooth:0.45, coast_ms:600, min_px:0,
-         cls_conf:{}};
+let P = {conf:0.40, iou:0.45, upload_w:640, upload_fps:12, smooth:0.45, coast_ms:600, min_px:0,
+         ball_filter:true, sat_thr:0.15, fill_thr:0.45, cls_conf:{}};
 let tracks=[], running=false, inFlight=false, sendT=0, rtt=0;
 let inferW=640, inferH=480, serverMs=0, upCnt=0, upFps=0, autoFps=true;
 
@@ -162,16 +177,17 @@ function iou(a,b){
   return ua>0?inter/ua:0;
 }
 const COLORS=['#22d36b','#ff8a3d','#3da5ff','#ffd93d'];
-const CLS=['篮球','排球','定位柱'];
+const CLS=['篮球','排球'];
 
 /* ---------- 参数面板 ---------- */
 function setPanel(){
   $('conf').value=P.conf; $('iou').value=P.iou;
-  $('c0').value=(P.cls_conf[CLS[0]]??0.35);
-  $('c1').value=(P.cls_conf[CLS[1]]??0.35);
-  $('c2').value=(P.cls_conf[CLS[2]]??0.25);
+  $('c0').value=(P.cls_conf[CLS[0]]??0.40);
+  $('c1').value=(P.cls_conf[CLS[1]]??0.40);
   $('minpx').value=P.min_px; $('uw').value=P.upload_w; $('uf').value=P.upload_fps;
   $('sm').value=P.smooth; $('cm').value=P.coast_ms;
+  $('bf').checked=(P.ball_filter!==false);
+  $('sat').value=(P.sat_thr??0.15); $('fill').value=(P.fill_thr??0.45);
   showVals();
 }
 function showVals(){
@@ -179,23 +195,27 @@ function showVals(){
   $('v_iou').textContent=(+$('iou').value).toFixed(2);
   $('v_c0').textContent=(+$('c0').value).toFixed(2);
   $('v_c1').textContent=(+$('c1').value).toFixed(2);
-  $('v_c2').textContent=(+$('c2').value).toFixed(2);
   $('v_min').textContent=$('minpx').value;
   $('v_uw').textContent=$('uw').value;
   $('v_uf').textContent=$('uf').value;
   $('v_sm').textContent=(+$('sm').value).toFixed(2);
   $('v_cm').textContent=$('cm').value;
+  $('v_bf').textContent=$('bf').checked?'开':'关';
+  $('v_sat').textContent=(+$('sat').value).toFixed(2);
+  $('v_fill').textContent=(+$('fill').value).toFixed(2);
 }
 function collect(){
   return {conf:+$('conf').value, iou:+$('iou').value,
-          cls_conf:{[CLS[0]]:+$('c0').value,[CLS[1]]:+$('c1').value,[CLS[2]]:+$('c2').value},
+          cls_conf:{[CLS[0]]:+$('c0').value,[CLS[1]]:+$('c1').value},
           min_px:+$('minpx').value, upload_w:+$('uw').value, upload_fps:+$('uf').value,
+          ball_filter:$('bf').checked, sat_thr:+$('sat').value, fill_thr:+$('fill').value,
           smooth:+$('sm').value, coast_ms:+$('cm').value};
 }
 // 拖动时只更新本地显示（传输/显示类立即生效，推理类等服务端确认）
-['conf','iou','c0','c1','c2','minpx','uw','uf','sm','cm'].forEach(id=>{
+['conf','iou','c0','c1','minpx','uw','uf','sm','cm','sat','fill'].forEach(id=>{
   $(id).addEventListener('input', ()=>{ showVals(); P=Object.assign(P, collect()); autoFps=false; });
 });
+$('bf').addEventListener('change', ()=>{ showVals(); P=Object.assign(P, collect()); autoFps=false; });
 
 async function loadParams(){
   try{

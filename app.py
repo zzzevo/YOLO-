@@ -550,9 +550,9 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
         _busy0, _who0 = training_in_progress()
         with gr.Row():
             with gr.Column():
-                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_2c" / "data.yaml"),
-                                   info="dataset_ball_2c=最新(纯2类+新排球视频+地板负样本) / v18=旧3类 / dataset_ball_v4=老2类")
-                model3 = gr.Textbox(label="起始权重", value="runs/ball_2c/weights/best.pt",
+                data3 = gr.Textbox(label="data.yaml", value=str(ROOT / "dataset_ball_2c_v3" / "data.yaml"),
+                                   info="dataset_ball_2c_v3=最新(纯2类+硬负样本+白线地板负样本) / ball_2c=旧 / dataset_ball_v4=老2类")
+                model3 = gr.Textbox(label="起始权重", value="runs/ball_2c_v3/weights/best.pt",
                                     info="接着上次练=最佳 / yolo26n.pt=官方预训练 / best_recovered.pt=原始权重")
                 with gr.Row():
                     epochs = gr.Number(value=80, label="epochs", precision=0)
@@ -605,7 +605,7 @@ with gr.Blocks(title="YOLO26 工作台") as demo:
                 vid_msg = gr.Textbox(label="视频检测结果", lines=4)
         with gr.Accordion("模型与参数", open=False):
             model4 = gr.Textbox(label="模型（.onnx 或 .pt）",
-                                value=str(ROOT / "runs" / "ball_2c" / "weights" / "best.onnx"),
+                                value=str(ROOT / "runs" / "ball_2c_v3" / "weights" / "best.onnx"),
                                 info="换成 .pt 走 GPU 更快：runs\\ball_v11\\weights\\best.pt")
             conf4 = gr.Slider(0.05, 0.9, value=0.40, step=0.05, label="置信度", info="0.40 起地板误检约 2%；更怕误检就 0.5，怕漏就 0.3")
             iou4 = gr.Slider(0.1, 0.9, value=0.45, step=0.05, label="NMS IoU")
