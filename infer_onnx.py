@@ -8,7 +8,7 @@ YOLO26 ONNX 推理 / 自动标注工具（纯 CPU，无需 torch）
   python infer_onnx.py 视频.mp4 --stride 5 --out out/frames
   python infer_onnx.py 图片目录/ --save-labels        # 生成 YOLO 格式 txt，用于打标预处理
 
-针对的模型: best.onnx  (Ultralytics YOLO26n, input 1x3x640x640, output 1x6x8400 = 4 box + 2 cls)
+针对的模型: best.onnx  (Ultralytics YOLO26n, input 1x3x640x640, output 1x6x8400 = 4 box + 2 cls（2 类）)
 """
 import argparse
 import os
@@ -26,7 +26,7 @@ VID_EXTS = {".mp4", ".avi", ".mov", ".mkv"}
 # 类别表，顺序必须与训练时一致（已用裁剪图肉眼核验）：
 #   0 = 篮球（橙色/绿色）  1 = 排球（蓝黄白）  2 = 定位柱（蓝30-绿40-蓝30 的标记板）
 # 注意：ball_v4 及更早的模型只有前 2 类；ball_v5 起是 3 类。
-CLASS_NAMES = ["篮球", "排球", "定位柱"]
+CLASS_NAMES = ["篮球", "排球"]   # 纯 2 类模型
 COLORS = [(0, 200, 0), (0, 128, 255), (255, 128, 0), (0, 0, 255)]
 
 

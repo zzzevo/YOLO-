@@ -209,7 +209,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=7871)
     ap.add_argument("--host", default="0.0.0.0")
-    ap.add_argument("--model", default="runs/ball_v18/weights/best.onnx")
+    ap.add_argument("--model", default="runs/ball_2c/weights/best.onnx")
     ap.add_argument("--conf", type=float, default=None, help="覆盖保存的总置信度门槛")
     ap.add_argument("--iou", type=float, default=None)
     ap.add_argument("--no-ssl", action="store_true")

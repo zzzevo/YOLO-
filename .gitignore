@@ -68,6 +68,14 @@ dataset_ball_v16/
 v17_labels/
 raw_v17/
 dataset_ball_v18/
+sample_raw/二类视频
+v21_labels/
+v20_labels/
+v19_labels/
+raw_v21/
+raw_v20/
+raw_v19/
+dataset_ball_2c/
 dataset_ball_v17/
 dataset_ball_v15/
 dataset_ball_v13/
