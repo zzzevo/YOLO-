@@ -47,7 +47,8 @@ PARAMS_FILE = ROOT / "live_params.json"
 DEFAULTS = {
     "conf": 0.40,          # 总置信度门槛（模型内部按低阈值检出，再用下面的细门槛筛）
     "iou": 0.45,           # NMS IoU
-    "cls_conf": {CLASS_NAMES[0]: 0.35, CLASS_NAMES[1]: 0.35, CLASS_NAMES[2]: 0.25},
+    # 每个类别可以单独设门槛（2 类：篮球 / 排球）
+    "cls_conf": {n: 0.40 for n in CLASS_NAMES},
     "min_px": 0,           # 框最短边（上传帧像素）低于此值丢弃
     "upload_w": 640,       # 前端上传帧宽度
     "upload_fps": 12,      # 前端每秒上传上限
